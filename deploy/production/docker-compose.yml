@@ -15,6 +15,10 @@ services:
       - ../../public/assets:/app/public/assets:ro
       - ../../public/fonts:/app/public/fonts:ro
       - ./runtime/assets.json:/app/data/assets.json:ro
+      - ./runtime/skins.json:/app/data/skins.json:ro
+      - ./runtime/asset-hashes.json:/app/data/asset-hashes.json:ro
+      - ./runtime/resource-packs.json:/app/data/resource-packs.json:ro
+      - ../../public/resource-packs:/app/public/resource-packs:ro
     depends_on:
       - redis
 
