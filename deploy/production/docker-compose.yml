@@ -1,11 +1,6 @@
 services:
   stronghold:
-    image: stronghold-protocol:e01036ae
-    build:
-      context: ../..
-      dockerfile: Dockerfile
-      args:
-        FETCH_ASSETS: "1"
+    image: stronghold-protocol:e01036ae-local
     restart: unless-stopped
     stop_grace_period: 70s
     environment:
@@ -15,6 +10,10 @@ services:
       SP_REDIS_URL: redis://redis:6379/0
     ports:
       - "127.0.0.1:3080:3000"
+    volumes:
+      - ../../public/assets:/app/public/assets:ro
+      - ../../public/fonts:/app/public/fonts:ro
+      - ./runtime/assets.json:/app/data/assets.json:ro
     depends_on:
       - redis
 
