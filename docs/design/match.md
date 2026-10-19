@@ -27,7 +27,7 @@ LOBBY(room) → INFO_CHECK (co-op 25 s; solo and any single-human match untimed 
                     escape templates supply re-entry waves/routes, not a flat replacement battlefield;
                     a helper's operator knocked out at the end of its own combat enters down — carryState { down: true },
                     PRTS "上一阶段为退场状态的干员强制退场", its full redeploy timer — confirmed by the user (§19.3))
-     SETTLE        (LP −min(leaks,10) per player (unite survivors to their source); eliminations; layer gains applied; coins; broadcast;
+     SETTLE        (LP −min(leaks,10) per player (unite survivors to their source); pending eliminations; optional 20 real s life-rescue window; layer gains applied; coins; broadcast;
                     after a 联防 the outcome and every player's charge ride the SETTLE m.public as `uniteResult`, GitHub #235)
    R14 FINAL_ASSAULT (merged team LP; random pairs fixed for this match; shared boss pool; 120 real s countdown, no hard stop; overtime −1 team LP per
                     real s after 120 real s, or 150 with an AI teammate at fight start (§29.1, m.public.overtimeAt); no layer gains; team LP 0 ⇒ defeat at once (PRTS 直接失败),
@@ -38,6 +38,8 @@ LOBBY(room) → INFO_CHECK (co-op 25 s; solo and any single-human match untimed 
 Solo FUNNY has 9 rounds (boss at R9); everything is read from `data/config.json → modes[modeId]`.
 
 P1b plugin modes inherit an official mode and may override economy and other global configuration field by field in `GameData` (DESIGN §32.5). Original modes retain the same values and behavior; room mode selection belongs to P1c.
+
+When an explicitly selected, locked script plugin with `match.life` is active, players reaching 0 LP become pending elimination until settlement completes. The `life-rescue` plugin may open a fixed 20-second window only when a target is pending and a living human can pay its configured `lifeCost` while keeping at least 1 LP. Match authenticates the rescuer, performs payment and revival atomically, and revives each target at 1 LP at most once per match. A rescued player keeps the post-settlement lineup, items and inventory sources, funds, pending funds, remaining bounty, unclaimed rewards and personal choices; the next round refreshes the shop normally. At timeout, remaining pending targets use the ordinary elimination cleanup. Without the plugin or an eligible donor, the existing 3-second SETTLE path remains. The plugin is never an implicit room default; content locking and human consent still apply.
 
 ### 6.2 Player state (PlayerState.js) — authoritative per player
 
