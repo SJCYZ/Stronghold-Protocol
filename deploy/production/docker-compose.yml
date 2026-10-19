@@ -9,6 +9,7 @@ services:
       TRUST_PROXY: "1"
       SP_REDIS_URL: redis://redis:6379/0
       SP_BOT_REHEARSAL: host
+      SP_STUDIO_HOSTS: ${SP_STUDIO_HOSTS:-}
     ports:
       - "127.0.0.1:3080:3000"
     volumes:

@@ -249,6 +249,35 @@ Redis 数据卷。你的 Compose 中 `./public/assets:/app/public/assets:ro` 和
 - **ZeroTier**：在 <https://my.zerotier.com> 创建网络，主机和朋友安装客户端并加入同一个 Network ID，在后台勾选授权成员；访问 `http://<主机的 ZeroTier IP>:3000`。
 - 连不上时运行 `node tools/doctor.mjs`：看 VPN 网卡是否被 Windows 识别为「公用网络」，是的话按 1.2 改为专用，或安装自启时加 `-AllowPublicNetwork`。
 
+#### ECS 上通过 Tailscale 访问插件工作台
+
+生产 Compose 将 Stronghold 仅绑定到 ECS 本机 `127.0.0.1:3080`。ECS 已加入 Tailnet 后，可用 Tailscale Serve 将该本机服务提供给 Tailnet：
+
+```sh
+sudo tailscale serve status
+```
+
+确认没有需要保留的现有 Serve 根路由后，再运行：
+
+```sh
+sudo tailscale serve --bg 3080
+```
+
+在 ECS 的 `/opt/stronghold-protocol/deploy/production/.env` 中添加实际 MagicDNS 完整主机名（不要带末尾的点）：
+
+```dotenv
+SP_STUDIO_HOSTS=<ECS 的 MagicDNS 主机名>
+```
+
+若该 `.env` 已存在，只增改 `SP_STUDIO_HOSTS` 一行并保留其他配置。重新创建应用容器时显式加载该文件，并且不重启 Redis：
+
+```sh
+cd /opt/stronghold-protocol/deploy/production
+sudo docker compose -p stronghold-protocol --env-file .env -f docker-compose.yml up -d --no-deps --force-recreate stronghold
+```
+
+随后通过 `https://<ECS 的 MagicDNS 主机名>/studio/` 打开工作台。Tailscale Serve 需在 Tailnet 启用 HTTPS 证书；Tailnet 访问控制规则同样适用，不要启用 Funnel。该根路径代理会让 Stronghold 首页也能在 Tailnet 内访问；打开页面、查看插件列表及普通只读信息不需要工作台钥匙，脚本源码和所有写操作仍需原有工作台钥匙。公网域名仍被工作台门禁拒绝。`SP_STUDIO_HOSTS` 仅允许这个页面使用该主机名，不替代来源地址检查或工作台钥匙。
+
 ### 2.2 cloudflared 临时隧道（朋友什么都不用装）
 
 ```powershell
