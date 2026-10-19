@@ -15,12 +15,12 @@
 //   opts.aiPicksLast boolean (optional)         the co-op room option 「AI 队友最后选择」 (room.setAiPicksLast, GitHub #338):
 //                                              the strategy and 机变 drafts put every human seat before every AI seat
 //                                              (MatchPhases.humansFirst); only `true` turns it on; ignored in solo
-//   opts.seats       Array<{ seat: 0..3, playerId: string, name: string, isBot: boolean, connected: boolean,
+//   opts.seats       Array<{ seat: 0..19, playerId: string, name: string, isBot: boolean, connected: boolean,
 //                            loadout?: { [baseChessId]: { skill: index, module: uniEquipId|'none'|null } } | null,
 //                            ops?: { [charId]: { potential: 1–6, cultivate: 0–3 } } | null,
 //                            notOwned?: string[] | null,
 //                            diy?: { [slotBaseId]: { charId, skillIndex, uniEquipId } } | null }>
-//                    sorted by seat, 1–4 entries, ≥ 1 human; solo ⇒ exactly 1 human and no bots.
+//                    sorted by seat, 1–20 entries, ≥ 1 human; solo ⇒ exactly 1 human and no bots.
 //                    Bot playerIds start with 'ai_'. Seat indexes may have gaps (e.g. seats 0 and 2).
 //                    `loadout` (DESIGN §16, optional): the human's operator loadout, already checked by the lobby
 //                    (shared/protocol.js checkLoadout); PlayerState re-checks it against opts.data and ignores it for bots.
@@ -203,7 +203,7 @@
 //   common.js        what the modules share (FLOW_TICKER_PRIORITY, DELAYS, BAND_TURN_SECONDS — re-exported here, OK,
 //                    fail, BOSS_CLOCK_MS)
 
-import { PHASE, modeIdFor } from '../../shared/constants.js';
+import { PHASE, modeIdFor, MAX_ROOM_CAPACITY } from '../../shared/constants.js';
 import { isContentHash } from '../../shared/plugins/identity.js';
 import { Battle } from '../sim/Battle.js';
 import { DataSource } from '../sim/simdata.js';
@@ -275,7 +275,7 @@ function dataSourceFor(data) {
 export class Match {
   /** @param {object} opts see MATCH INTERFACE above */
   constructor(opts) {
-    if (!opts || !Array.isArray(opts.seats) || opts.seats.length === 0) throw new TypeError('Match: seats required');
+    if (!opts || !Array.isArray(opts.seats) || opts.seats.length === 0 || opts.seats.length > MAX_ROOM_CAPACITY) throw new TypeError('Match: seats required');
     if (typeof opts.send !== 'function' || typeof opts.broadcast !== 'function' || typeof opts.onEnd !== 'function') {
       throw new TypeError('Match: send/broadcast/onEnd callbacks required');
     }
@@ -381,6 +381,17 @@ export class Match {
     }
     if (!this.players.size) throw new TypeError('Match: seats required');
     this.order = [...this.players.values()].sort((a, b) => a.seat - b.seat);
+    const participants = Object.freeze(this.order.map((ps) => ps.playerId));
+    const squads = Object.freeze(Array.from({ length: Math.ceil(this.order.length / 4) }, (_, i) => Object.freeze({
+      squadId: `squad_${i + 1}`,
+      playerIds: Object.freeze(this.order.slice(i * 4, (i + 1) * 4).map((ps) => ps.playerId)),
+    })));
+    Object.defineProperties(this, {
+      participants: { value: participants, enumerable: true },
+      variant: { value: participants.length > 4, enumerable: true },
+      squads: { value: squads, enumerable: true },
+    });
+    this._squadByPlayer = new Map(squads.flatMap((squad) => squad.playerIds.map((playerId) => [playerId, squad.squadId])));
     /**
      * Spectator seats (opts.spectators / addSpectator): playerId → a stand-in every watch path treats like an eliminated
      * human (alive false; no PlayerState, never a field's player or authority).

@@ -889,16 +889,17 @@ export class Lobby {
     const warn = (reason) => this.log.warn(`[persist] ${key}: recovery ${reason}`);
     const departed = new Set(departedPlayerIds);
     const ids = new Set(), seats = new Set(), players = [];
+    const seatLimit = room ? MAX_ROOM_CAPACITY : MAX_SEATS;
     let humans = 0;
     for (const p of Array.isArray(checkpoint.players) ? checkpoint.players : []) {
-      if (!p || typeof p.playerId !== 'string' || !p.playerId || ids.has(p.playerId) || players.length >= MAX_SEATS) {
+      if (!p || typeof p.playerId !== 'string' || !p.playerId || ids.has(p.playerId) || players.length >= seatLimit) {
         warn('skipped an invalid, duplicate or excess player record');
         continue;
       }
       ids.add(p.playerId);
-      let seat = Number.isInteger(p.seat) && p.seat >= 0 && p.seat < MAX_SEATS && !seats.has(p.seat) ? p.seat : -1;
+      let seat = Number.isInteger(p.seat) && p.seat >= 0 && p.seat < seatLimit && !seats.has(p.seat) ? p.seat : -1;
       if (seat < 0) {
-        seat = Array.from({ length: MAX_SEATS }, (_, i) => i).find((i) => !seats.has(i));
+        seat = Array.from({ length: seatLimit }, (_, i) => i).find((i) => !seats.has(i));
         warn(`reassigned invalid seat for ${p.playerId} to ${seat}`);
       }
       seats.add(seat);
@@ -956,7 +957,7 @@ export class Lobby {
     checkpoint = doc;
     const players = doc.players;
     const seats = players.map((p, i) => ({
-      seat: Number.isInteger(p.seat) && p.seat >= 0 && p.seat < MAX_SEATS ? p.seat : i,
+      seat: Number.isInteger(p.seat) && p.seat >= 0 && p.seat < (room ? MAX_ROOM_CAPACITY : MAX_SEATS) ? p.seat : i,
       playerId: p.playerId,
       name: typeof p.name === 'string' ? p.name : t('博士'),
       isBot: !!p.isBot,
@@ -1010,7 +1011,7 @@ export class Lobby {
   async restoreQueuedMatchWorker(checkpoint, { room = null, departedPlayerIds = [], sessionMatchKeys = null } = {}) {
     const players = checkpoint.players;
     const seats = players.map((p, i) => ({
-      seat: Number.isInteger(p.seat) && p.seat >= 0 && p.seat < MAX_SEATS ? p.seat : i,
+      seat: Number.isInteger(p.seat) && p.seat >= 0 && p.seat < (room ? MAX_ROOM_CAPACITY : MAX_SEATS) ? p.seat : i,
       playerId: p.playerId, name: typeof p.name === 'string' ? p.name : t('博士'), isBot: !!p.isBot,
       left: !p.isBot && departedPlayerIds.includes(p.playerId), connected: false,
       skins: p.isBot ? null : p.skins || null, loadout: p.isBot ? null : (p.loadout || null), ops: p.isBot ? null : p.ops || null, notOwned: p.isBot ? null : p.standIns || null, diy: p.isBot ? null : p.diy || null,
@@ -1753,8 +1754,8 @@ export class Lobby {
     if (room.hostId !== session.playerId) return fail(ERR.NOT_HOST);
     if (room.match) return fail(ERR.ROOM_STARTED);
     if (room.matching) return fail(ERR.MATCHING);
-    if (room.seats.length !== room.capacity || room.seats.some((s, i) => s && (s.seat !== i || i >= MAX_SEATS))
-      || room.seats.filter(Boolean).length > MAX_SEATS) return fail(ERR.BAD_MSG, 'room exceeds the four-player match size');
+    if (room.seats.length !== room.capacity || room.seats.some((s, i) => s && (s.seat !== i || i >= MAX_ROOM_CAPACITY))
+      || room.seats.filter(Boolean).length > MAX_ROOM_CAPACITY) return fail(ERR.BAD_MSG, 'room exceeds the twenty-player match size');
     const humans = room.activeHumans();
     if (room.content?.trusted && humans.some(s => s.consentCs !== room.content.cs)) return fail(ERR.PLUGIN_CONSENT);
     for (const s of humans) {

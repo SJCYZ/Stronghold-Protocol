@@ -33,6 +33,8 @@ function cultivationInfo(lo) {
 }
 
 export class MatchViews {
+  squadOf(playerId) { return this._squadByPlayer.get(playerId) || null; }
+
   statusOf(ps) {
     if (ps.left) return 'left';
     if (!ps.alive) return 'dead';
@@ -69,6 +71,7 @@ export class MatchViews {
       deadline: this.deadline,
       serverNow: this.sched.now(),
       modeId: this.modeId,
+      variant: this.variant,
       difficulty: this.difficulty,
       stageId: this.stageId,
       setupRevision: this.setupRevision,
@@ -95,6 +98,7 @@ export class MatchViews {
       players: this.order.map((ps) => ({
         playerId: ps.playerId,
         seat: ps.seat,
+        squadId: this.squadOf(ps.playerId),
         name: ps.name,
         isBot: ps.isBot,
         connected: ps.isBot || (ps.connected && !ps.left),
