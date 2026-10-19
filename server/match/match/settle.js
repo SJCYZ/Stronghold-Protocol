@@ -14,6 +14,7 @@ import { creditedKillsOf } from '../../sim/spec.js';
 export class MatchSettle {
   settle(plan, uniteResult) {
     this.phase = PHASE.SETTLE;
+    this.uniteState = null;
     this.runner = null;
     this._stopClientCombat();
     // the pending in-battle gains the views showed become persistent below (alive players) or lapse (DESIGN §20.15)

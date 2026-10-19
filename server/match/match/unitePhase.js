@@ -5,19 +5,65 @@
 
 import { PHASE, GEO } from '../../../shared/constants.js';
 import { deriveSeed } from '../../sim/rng.js';
-import { uniteBattleOpts, uniteSurvivors, uniteStageId } from '../unite.js';
+import { drawUniteHelpers, serializeUnitePlan, uniteBattleOpts, uniteSurvivors, uniteStageId } from '../unite.js';
 import { FieldRunner, timelineAt, uniteBillBounds } from '../fields.js';
 import { uniteLeft } from '../../sim/spec.js';
 import { FLOW_TICKER_PRIORITY, DELAYS } from './common.js';
 import { msg } from '../../../shared/i18n.js';
 import { onStartUnite } from '../botEmotes.js';
 
+/** The second round receives only enemies still alive or not yet spawned, keeping their original source records. */
+function nextUniteLeaks(plan, result) {
+  const available = new Map();
+  for (const leak of plan.leaked) {
+    const key = uniteLeakKey(leak);
+    const queue = available.get(key) || [];
+    queue.push(leak);
+    available.set(key, queue);
+  }
+  const next = [];
+  const take = (leak) => {
+    if (!leak || leak.counted === false || typeof leak.enemyKey !== 'string' || !leak.sourcePlayerId) return;
+    const queue = available.get(uniteLeakKey(leak));
+    next.push(queue?.length ? queue.shift() : { ...leak, mods: leak.mods ? { ...leak.mods } : null });
+  };
+  for (const pp of Object.values(result.perPlayer || {})) for (const leak of pp?.leaked || []) take(leak);
+  for (const leak of result.unspawned || []) take(leak);
+  return next;
+}
+
+function uniteLeakKey(leak) {
+  return `${leak.sourcePlayerId || ''}\0${leak.enemyKey || ''}\0${leak.tag || ''}`;
+}
+
+function combineUniteResults(results) {
+  const last = results[results.length - 1] || {};
+  const perPlayer = {};
+  for (const result of results) for (const [id, pp] of Object.entries(result?.perPlayer || {})) {
+    const out = perPlayer[id] ||= {};
+    for (const key of ['killed', 'total', 'coins', 'damageDealt', 'healingDone', 'creditedKills']) {
+      if (Number.isFinite(pp[key])) out[key] = (out[key] || 0) + pp[key];
+    }
+    if (pp.layerGains) {
+      out.layerGains ||= {};
+      for (const [bondId, value] of Object.entries(pp.layerGains)) out.layerGains[bondId] = (out.layerGains[bondId] || 0) + (Number(value) || 0);
+    }
+    if (Array.isArray(pp.unitsEnd)) out.unitsEnd = pp.unitsEnd;
+  }
+  for (const [id, pp] of Object.entries(last.perPlayer || {})) perPlayer[id] ||= {};
+  for (const [id, pp] of Object.entries(perPlayer)) pp.leaked = last.perPlayer?.[id]?.leaked || [];
+  return { ...last, perPlayer, unspawned: last.unspawned || [], errors: results.reduce((n, result) => n + (Number(result?.errors) || 0), 0) };
+}
+
 export class MatchUnite {
   startUnite(plan) {
     if (this.clientCombat) { this._startUniteClient(plan); return; }
     this.phase = PHASE.UNITE;
     this.unitePlan = plan;
-    const limit = this.wave ? this.wave.timeLimit : 60;
+    const limit = plan.variant
+      ? Math.min(150, this.gd.combatTimeLimitReal(this.round)) * this.gd.combatTimeScale
+      : this.wave ? this.wave.timeLimit : 60;
+    if (plan.variant) this.uniteState = serializeUnitePlan(plan);
     const battle = this.newBattle(this._uniteOpts(plan, limit));
     this.fields = [{ fieldId: 'u', kind: 'unite', players: plan.helpers.map((p) => p.playerId), battle, live: true }];
     this.deadline = this.sched.instant ? 0 : this.sched.now() + Math.round((limit / this.gameSpeed) * 1000);
@@ -35,7 +81,11 @@ export class MatchUnite {
         this.fields[0].live = false;
         this.deadline = 0;
         this.markPublic();
-        this.later(this.scaled(DELAYS.COMBAT_END), () => this.settle(plan, res));
+        if (plan.variant) {
+          plan.pendingResult = res;
+          this.uniteState = serializeUnitePlan(plan);
+        }
+        this.later(this.scaled(DELAYS.COMBAT_END), () => this._completeUniteRound(plan, res));
       },
     });
     this.runner.start();
@@ -71,7 +121,10 @@ export class MatchUnite {
   _startUniteClient(plan) {
     this.phase = PHASE.UNITE;
     this.unitePlan = plan;
-    const limit = this.wave ? this.wave.timeLimit : 60;
+    const limit = plan.variant
+      ? Math.min(150, this.gd.combatTimeLimitReal(this.round)) * this.gd.combatTimeScale
+      : this.wave ? this.wave.timeLimit : 60;
+    if (plan.variant) this.uniteState = serializeUnitePlan(plan);
     const f = this._ccField({ fieldId: 'u', kind: 'unite', players: plan.helpers.map((p) => p.playerId), opts: this._uniteOpts(plan, limit) });
     this.deadline = this.sched.instant ? 0 : this.sched.now() + Math.round((limit / this.gameSpeed) * 1000);
     this.watchers.clear();
@@ -95,7 +148,36 @@ export class MatchUnite {
     this.deadline = 0;
     this.markPublic();
     const plan = this.unitePlan;
-    this.later(this.scaled(DELAYS.COMBAT_END), () => this.settle(plan, res));
+    if (plan.variant) {
+      plan.pendingResult = res;
+      this.uniteState = serializeUnitePlan(plan);
+    }
+    this.later(this.scaled(DELAYS.COMBAT_END), () => this._completeUniteRound(plan, res));
+  }
+
+  _completeUniteRound(plan, result) {
+    if (!plan.variant) { this.settle(plan, result); return; }
+    result = plan.pendingResult || result;
+    plan.pendingResult = null;
+    plan.roundResults.push(result);
+    if (!result.synthetic && plan.round === 1) {
+      const leaked = nextUniteLeaks(plan, result);
+      if (leaked.length) {
+        const candidates = plan.candidateIds.map((id) => this.players.get(id)).filter((p) => p && p.alive);
+        const helpers = drawUniteHelpers(this, candidates);
+        if (helpers.length) {
+          plan.round = 2;
+          plan.leaked = leaked;
+          plan.helpers = helpers;
+          this.uniteState = serializeUnitePlan(plan);
+          this.startUnite(plan);
+          return;
+        }
+      }
+    }
+    const finalResult = combineUniteResults(plan.roundResults);
+    this.uniteState = null;
+    this.settle(plan, finalResult);
   }
 
   /**

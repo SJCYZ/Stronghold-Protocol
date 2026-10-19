@@ -10,10 +10,9 @@ import { freezeSkins } from '../../shared/skins.js';
 //
 // SAFE PHASES. A checkpoint is taken while the match is in INFO_CHECK, BAND_DRAFT, SP_DRAFT, ROUND_START or PREP.
 // Those are the phases in which no battle object, no pacer and no field is alive (fields/watchers/teamLp/bossPool are
-// empty), so the whole state is serializable. If a match is interrupted in COMBAT / UNITE / SETTLE / FINAL_ASSAULT /
-// HIDDEN_CORE, the *last* safe checkpoint is kept: the match resumes at the start of the round it is in — its
-// operators, items, economy, LP, round number and pool are exactly what they were, and the round's battle is fought
-// again (a fresh battleId, see RESTORE_SEQ_GAP).
+// empty), so the whole state is serializable. The multiplayer variant's UNITE phase is a narrow exception: only its
+// state-only round plan/results are captured, then the current unite field is rebuilt on restore. If a match is
+// interrupted in COMBAT / legacy UNITE / SETTLE / FINAL_ASSAULT / HIDDEN_CORE, the *last* safe checkpoint is kept.
 //
 // ON RESTORE the clocks restart from the *remaining* time the checkpoint recorded (the match was frozen while the
 // server was down), the prep gets at least MIN_RECOVER_PREP_SEC, and a draft turn that was current starts over with a
@@ -23,12 +22,13 @@ import { freezeSkins } from '../../shared/skins.js';
 
 import { PHASE } from '../../shared/constants.js';
 import { buildNormalWave } from './waves.js';
+import { restoreUnitePlan } from './unite.js';
 
 /** Checkpoint layout version; a document of another version is refused. */
 export const SNAPSHOT_VERSION = 1;
 
 /** Phases whose state is fully serializable (see the header). */
-export const SNAPSHOT_PHASES = Object.freeze([PHASE.INFO_CHECK, PHASE.BAND_DRAFT, PHASE.SP_DRAFT, PHASE.ROUND_START, PHASE.PREP]);
+export const SNAPSHOT_PHASES = Object.freeze([PHASE.INFO_CHECK, PHASE.BAND_DRAFT, PHASE.SP_DRAFT, PHASE.ROUND_START, PHASE.PREP, PHASE.UNITE]);
 
 /** A restored round's battle gets ids far above the interrupted ones (stale reports can never match a new battle). */
 export const RESTORE_SEQ_GAP = 1000;
@@ -50,6 +50,7 @@ export function canSnapshot(m) {
   if (!m.sched || typeof m.sched.now !== 'function') return false;   // a stub Match (tests) has no restorable state
   if (!m.pool || !(m.pool.entries instanceof Map)) return false;
   if (!SNAPSHOT_PHASES.includes(m.phase)) return false;
+  if (m.phase === PHASE.UNITE && (!m.variant || !m.uniteState)) return false;
   if (m.phase === PHASE.PREP) {
     for (const ps of m.alivePlayers()) if (ps.botControlled && !ps.ready) return false;
   }
@@ -184,7 +185,7 @@ const MATCH_FIELDS = Object.freeze([
   'stageId', 'factions', 'bossId', 'hiddenBossId', 'disabledBonds', 'staticInactiveBonds', 'bannedChess',
   'aiPicksLast', 'setupRevision', '_setupVoteSeq',
   'round', 'uidSeq', 'loneHuman', 'hiddenLayerSum', 'hiddenReached', 'errors', 'errorCount', 'simErrors',
-  'cs', 'vs', 'requireCs', 'hostId', 'simErrorLog', 'draft', 'sp', 'wave', 'bossWaves', 'bossPairs',
+  'cs', 'vs', 'requireCs', 'hostId', 'simErrorLog', 'draft', 'sp', 'wave', 'bossWaves', 'bossPairs', 'uniteState',
 ]);
 
 /** PlayerState fields of a checkpoint (bonds/deploy map are recomputed on restore). */
@@ -636,6 +637,17 @@ function enterPhase(m, doc, now) {
       m.setDeadline(0);
       m.startSpTurn();
       if (m.sp.mode === 'squad') for (const ps of m.alivePlayers()) m.markPrivate(ps);
+      break;
+    }
+    case PHASE.UNITE: {
+      const plan = m.variant ? restoreUnitePlan(m, m.uniteState) : null;
+      if (!plan) throw new Error('invalid saved unite state');
+      if (plan.pendingResult) {
+        m.phase = PHASE.UNITE;
+        m.unitePlan = plan;
+        m.fields = [];
+        m._completeUniteRound(plan);
+      } else m.startUnite(plan);
       break;
     }
     case PHASE.ROUND_START: {
