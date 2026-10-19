@@ -106,6 +106,11 @@ export function serializeUnitePlan(plan) {
   };
 }
 
+function keepUniteWaveSources(plan, wave) {
+  plan.waveSpawns = wave.spawns;
+  plan.waveLeakSources = wave.leakSources;
+}
+
 /** Rebuild player references from the state-only checkpoint; does not consume RNG. */
 export function restoreUnitePlan(m, state) {
   if (!state || !Array.isArray(state.candidateIds) || !Array.isArray(state.helperIds)
@@ -114,11 +119,14 @@ export function restoreUnitePlan(m, state) {
   const helpers = getPlayers(state.helperIds);
   const leakers = getPlayers(state.leakerIds);
   if (helpers.length !== state.helperIds.length || leakers.length !== state.leakerIds.length) return null;
-  return {
+  const plan = {
     variant: true, round: state.round, candidateIds: state.candidateIds.filter((id) => m.players.has(id)),
     helpers, leakers, leaked: state.leaked, notReentered: new Map(Object.entries(state.notReentered || {})),
     roundResults: Array.isArray(state.roundResults) ? state.roundResults : [], pendingResult: state.pendingResult || null,
   };
+  const timeLimit = Math.min(150, m.gd.combatTimeLimitReal(m.round)) * m.gd.combatTimeScale;
+  keepUniteWaveSources(plan, buildUniteWave(m.gd, plan.leaked, plan.helpers.length, timeLimit));
+  return plan;
 }
 
 /**
@@ -182,8 +190,7 @@ export function uniteStageId(gd, helperCount, roundStageId = null) {
 /** Battle options for the unite field (without data/logger, added by the match). */
 export function uniteBattleOpts(m, plan, timeLimit) {
   const wave = buildUniteWave(m.gd, plan.leaked, plan.helpers.length, timeLimit);
-  plan.waveSpawns = wave.spawns;
-  plan.waveLeakSources = wave.leakSources;
+  keepUniteWaveSources(plan, wave);
   const players = plan.helpers.map((ps, i) => {
     const carry = new Map();
     const r = plan.round === 2 && plan.roundResults?.[0]?.perPlayer?.[ps.playerId]

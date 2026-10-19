@@ -304,6 +304,49 @@ test('多人联防在首轮 field 已结束、切换回调未执行时 checkpoin
   }
 });
 
+test('pendingResult checkpoint 恢复时重建首轮 wave 映射并保留未生成漏怪元数据', () => {
+  const { h, m, plan } = makePlan(5, 815, { p_0: 2, p_1: 1 });
+  let restoredMatch;
+  try {
+    const p0Leaks = plan.leaked.filter((leak) => leak.sourcePlayerId === 'p_0');
+    for (const [index, leak] of p0Leaks.entries()) {
+      leak.tag = 'bounty';
+      leak.mods = { bountyId: `pending-${index}` };
+      leak.bounty = { coins: 30 + index, ownerPlayerId: 'p_0' };
+      leak.routeIndex = 6 + index;
+    }
+    m.startUnite(plan);
+    const first = FakeBattle.instances.filter((battle) => battle.kind === 'unite').at(-1);
+    const spawnA = first.spawns.find((spawn) => spawn.sourcePlayerId === 'p_0' && spawn.mods?.bountyId === 'pending-0');
+    const spawnB = first.spawns.find((spawn) => spawn.sourcePlayerId === 'p_0' && spawn.mods?.bountyId === 'pending-1');
+    const pendingResult = {
+      perPlayer: { p_0: { leaked: [{ enemyKey: spawnA.enemyKey, mods: spawnA.mods, sourcePlayerId: 'p_0', tag: spawnA.tag, counted: true }] } },
+      unspawned: [{ enemyKey: spawnB.enemyKey, sourcePlayerId: 'p_0', tag: spawnB.tag, time: spawnB.time }],
+    };
+    plan.pendingResult = pendingResult;
+    m.uniteState = serializeUnitePlan(plan);
+    m.fields[0].live = false;
+    m.fields[0].result = pendingResult;
+    const doc = snapshotMatch(m);
+    assert.ok(doc?.uniteState.pendingResult);
+
+    restoredMatch = makeMatch({ mode: 'coop', humans: 5, seed: 815, fake: true });
+    assert.equal(restoreMatch(restoredMatch.m, doc, { createRngFromState, log: { warn() {}, info() {}, error() {}, debug() {} } }), true);
+    const secondLeaks = restoredMatch.m.unitePlan.leaked.filter((leak) => leak.sourcePlayerId === 'p_0');
+    assert.deepEqual(secondLeaks.map((leak) => [leak.mods.bountyId, leak.bounty.coins, leak.routeIndex]).sort(), [
+      ['pending-0', 30, 6], ['pending-1', 31, 7],
+    ]);
+    const second = FakeBattle.instances.filter((battle) => battle.kind === 'unite').at(-1);
+    assert.deepEqual(second.spawns.filter((spawn) => spawn.sourcePlayerId === 'p_0').map((spawn) => [spawn.mods.bountyId, spawn.bounty.coins]).sort(), [
+      ['pending-0', 30], ['pending-1', 31],
+    ]);
+    assert.equal(restoredMatch.m.unitePlan.round, 2);
+  } finally {
+    h.m.dispose();
+    restoredMatch?.m.dispose();
+  }
+});
+
 test('20 人多人变体从全房间候选中无放回抽两人，候选不足时全部选择', () => {
   const { m, results, plan } = makePlan(20, 209, { p_0: 2, p_1: 1 });
   try {
