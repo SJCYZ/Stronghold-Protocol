@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { makeMatch } from './harness.js';
 import { PHASE } from '../../shared/constants.js';
 import { matchState } from '../../server/match/snapshot.js';
+import { createSDK } from '../../shared/plugins/sdk.js';
+import { resetExtensions } from '../../server/sim/content/extensions.js';
 
 test('pending eliminations are excluded from the live match roster', () => {
   const h = makeMatch({ mode: 'coop', humans: 2, fake: true }).start();
@@ -97,4 +99,78 @@ test('rescue window expiry eliminates pending targets before the normal survivor
   assert.deepEqual(h.m.alivePlayers(), [rescuer]);
   assert.equal(advanced, true);
   h.m.dispose();
+});
+
+test('real settle registers SDK offers, opens a 20 second window and serializes same-target rescue intents', () => {
+  resetExtensions();
+  const sp = createSDK({ id: 'life-rescue', permissions: ['match.life'] });
+  sp.match.life.onPostSettlement(({ players, offerRescue }) => {
+    const targets = players.filter((p) => p.pendingElimination).map((p) => p.playerId);
+    if (targets.length) offerRescue({ cost: 2, durationMs: 20_000, targetIds: targets }, ({ rescuerId, targetId, changeLife, revive }) => {
+      if (changeLife(rescuerId, -2)) revive(targetId, 1);
+    });
+  });
+  const h = makeMatch({ mode: 'coop', humans: 3, fake: true }).start();
+  const [first, second, target] = h.m.order;
+  first.lp = 5;
+  second.lp = 4;
+  target.lp = 1;
+  h.m.lastResults = new Map(h.m.order.map((ps) => [ps.playerId, {
+    leaked: ps === target ? [{ counted: true }] : [], perfect: true, coins: 0,
+  }]));
+  h.m.settle(null, null);
+  assert.equal(h.m.phase, PHASE.SETTLE);
+  assert.equal(h.m.deadline - h.sched.now(), 20_000);
+  assert.deepEqual(h.m.publicView().rescue.targets, [{ playerId: target.playerId, cost: 2 }]);
+  const firstResult = h.m.handle(first.playerId, { t: 'g.rescue', targetId: target.playerId });
+  const secondResult = h.m.handle(second.playerId, { t: 'g.rescue', targetId: target.playerId });
+  assert.deepEqual(firstResult, { ok: true });
+  assert.deepEqual(secondResult, { error: 'BAD_TARGET' });
+  assert.equal(first.lp, 3);
+  assert.equal(second.lp, 4);
+  assert.equal(target.lp, 1);
+  assert.equal(target.lifeRescueUsed, true);
+  h.m.dispose();
+  resetExtensions();
+});
+
+test('real settle with no qualifying human rescuer uses the original three second cleanup', () => {
+  resetExtensions();
+  const sp = createSDK({ id: 'life-rescue', permissions: ['match.life'] });
+  sp.match.life.onPostSettlement(({ players, offerRescue }) => {
+    const targets = players.filter((p) => p.pendingElimination).map((p) => p.playerId);
+    if (targets.length) offerRescue({ cost: 2, durationMs: 20_000, targetIds: targets }, () => {});
+  });
+  const h = makeMatch({ mode: 'coop', humans: 2, fake: true }).start();
+  for (const ps of h.m.order) ps.lp = 1;
+  h.m.lastResults = new Map(h.m.order.map((ps) => [ps.playerId, {
+    leaked: [{ counted: true }], perfect: false, coins: 0,
+  }]));
+  h.m.settle(null, null);
+  assert.equal(h.m.rescueTargets, undefined);
+  assert.equal(h.m.deadline - h.sched.now(), 3_000);
+  assert.ok(h.m.order.every((ps) => !ps.alive && !ps.pendingElimination));
+  h.m.dispose();
+  resetExtensions();
+});
+
+
+test('a plugin cannot shorten the approved 20 second rescue window', () => {
+  resetExtensions();
+  const sp = createSDK({ id: 'life-rescue', permissions: ['match.life'] });
+  sp.match.life.onPostSettlement(({ players, offerRescue }) => {
+    const targetIds = players.filter((p) => p.pendingElimination).map((p) => p.playerId);
+    if (targetIds.length) offerRescue({ cost: 2, durationMs: 1_000, targetIds }, () => {});
+  });
+  const h = makeMatch({ mode: 'coop', humans: 2, fake: true }).start();
+  h.m.order[0].lp = 5;
+  h.m.order[1].lp = 1;
+  h.m.lastResults = new Map(h.m.order.map((ps, index) => [ps.playerId, {
+    leaked: index === 1 ? [{ counted: true }] : [], perfect: index !== 1, coins: 0,
+  }]));
+  h.m.settle(null, null);
+  assert.equal(h.m.rescueTargets, undefined);
+  assert.equal(h.m.deadline - h.sched.now(), 3_000);
+  h.m.dispose();
+  resetExtensions();
 });

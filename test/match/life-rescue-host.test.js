@@ -1,65 +1,73 @@
-import { test, after } from 'node:test';
+import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Match } from '../../server/match/Match.js';
 import { getData } from '../../server/data.js';
-import { createPluginRegistry } from '../../server/plugins/registry.js';
 import { createContentSets } from '../../server/plugins/contentSets.js';
 import { createMatchHosts } from '../../server/match/host/index.js';
-import { writePlugin } from '../helpers/pluginFixtures.js';
+import { scriptFixture } from '../helpers/scriptFixtures.js';
 
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const quiet = { info() {}, warn() {}, error() {}, debug() {} };
-const dirs = [];
+const delay = (ms) => new Promise((resolve, reject) => {
+  const timer = setTimeout(() => reject(new Error('hosted SETTLE window did not open')), ms);
+  timer.unref?.();
+});
 
-function contentSet() {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'sp-life-rescue-host-'));
-  dirs.push(tmp);
-  const pluginsDir = path.join(tmp, 'plugins');
-  writePlugin(path.join(pluginsDir, 'empty'), { manifest: 2, version: '1.0.0', app: '*', api: 1, class: 'content', scope: ['room'], permissions: [] }, {});
-  const registry = createPluginRegistry({
-    publicDir: path.join(ROOT, 'public'), dataDir: path.join(ROOT, 'data'), packsDir: path.join(tmp, 'packs'), pluginsDir,
-  }, { log: quiet });
-  registry.refresh(true);
-  const contents = createContentSets({ registry, vanillaData: getData({ log: quiet }), log: quiet });
-  const result = contents.resolve(['empty']);
-  assert.ok(result.ok, JSON.stringify(result));
-  contents.hold(result.set.cs);
-  return { contents, set: result.set };
-}
-
-function opts(cs, frames) {
-  const seats = [0, 1].map((seat) => ({ seat, playerId: `p_${seat}`, name: `P${seat}`, isBot: false, connected: true }));
-  return {
+test('hosted Match opens a script registered rescue window and processes competing intents serially', { timeout: 60_000 }, async (t) => {
+  const fixture = scriptFixture(t, { log: quiet });
+  fixture.put('life-rescue', `export default function setup(sp) {
+    sp.match.life.onPostSettlement(({ players, offerRescue }) => {
+      const targetIds = players.filter(player => player.pendingElimination).map(player => player.playerId);
+      if (!targetIds.length) return;
+      offerRescue({ cost: 2, durationMs: 20000, targetIds }, ({ rescuerId, targetId, changeLife, revive }) => {
+        if (changeLife(rescuerId, -2)) revive(targetId, 1);
+      });
+    });
+  }`, { permissions: ['sim.code', 'match.life'] });
+  const contents = createContentSets({ registry: fixture.registry, vanillaData: getData({ log: quiet }), log: quiet });
+  const resolved = contents.resolve(['life-rescue']);
+  assert.ok(resolved.ok, JSON.stringify(resolved));
+  contents.hold(resolved.set.cs);
+  const set = resolved.set;
+  const broadcasts = [];
+  let openWindow;
+  const windowOpened = new Promise((resolve) => { openWindow = resolve; });
+  const hosts = createMatchHosts({
+    contents, log: quiet,
+    options: { matchModule: fileURLToPath(new URL('./fixtures/lifeRescueWorkerMatch.js', import.meta.url)) },
+  });
+  const seats = [0, 1, 2].map((seat) => ({ seat, playerId: `p_${seat}`, name: `P${seat}`, isBot: false, connected: true }));
+  const hosted = hosts.create(set.cs, {
     roomCode: 'TEST', mode: 'coop', difficulty: 'NORMAL', modeId: 'mode_multi_normal', seats, spectators: [],
-    seed: 19, matchNo: 1, cs, requireCs: true,
-    send: (id, msg) => { frames.sent.push([id, msg]); return true; },
-    broadcast: (msg) => frames.broadcast.push(msg), onEnd() {},
-  };
-}
-
-after(() => { for (const dir of dirs) fs.rmSync(dir, { recursive: true, force: true }); });
-
-test('hosted Match handles rescue intent with the same phase gate as direct Match', { timeout: 60_000 }, async () => {
-  const { contents, set } = contentSet();
-  const hosts = createMatchHosts({ contents, log: quiet, options: { virtualTime: true } });
-  const hostedFrames = { sent: [], broadcast: [] };
-  const directFrames = { sent: [], broadcast: [] };
-  const hosted = hosts.create(set.cs, opts(set.cs, hostedFrames));
-  const direct = new Match({ ...opts(set.cs, directFrames), data: set.data, log: quiet });
+    seed: 19, matchNo: 1, cs: set.cs, requireCs: true,
+    send() { return true; },
+    broadcast(message) {
+      broadcasts.push(message);
+      if (message.t === 'm.public' && message.phase === 'SETTLE' && message.rescue) openWindow(message);
+    },
+    onEnd() {},
+  });
   try {
     hosted.start();
-    direct.start();
-    const hostedResult = await hosted.handle('p_0', { t: 'g.rescue', targetId: 'p_1' });
-    const directResult = direct.handle('p_0', { t: 'g.rescue', targetId: 'p_1' });
-    assert.deepEqual(hostedResult, directResult);
-    assert.deepEqual(hostedResult, { error: 'WRONG_PHASE' });
+    let view;
+    try { view = await Promise.race([windowOpened, delay(15_000)]); }
+    catch (error) { throw new Error(`${error.message}; diagnostics=${JSON.stringify(await hosted.diag())}; broadcasts=${JSON.stringify(broadcasts.map(x => x.t + ':' + x.phase))}`); }
+    assert.ok(view.deadline - view.serverNow <= 20_000 && view.deadline - view.serverNow > 19_000);
+    assert.deepEqual(view.rescue.targets, [{ playerId: 'p_2', cost: 2 }]);
+    const outcomes = await Promise.all([
+      hosted.handle('p_0', { t: 'g.rescue', targetId: 'p_2' }),
+      hosted.handle('p_1', { t: 'g.rescue', targetId: 'p_2' }),
+    ]);
+    assert.equal(outcomes.filter((result) => result.ok).length, 1);
+    assert.equal(outcomes.filter((result) => result.error === 'BAD_TARGET').length, 1);
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    const latest = [...broadcasts].reverse().find((message) => message.t === 'm.public');
+    const rescued = latest.players.find((player) => player.playerId === 'p_2');
+    assert.equal(rescued.alive, true);
+    assert.equal(rescued.lp, 1);
+    assert.ok(latest.players.filter((player) => ['p_0', 'p_1'].includes(player.playerId)).some((player) => player.lp === 3));
+    assert.equal((await hosted.diag()).errorCount, 0);
   } finally {
     hosted.dispose();
-    direct.dispose();
     hosts.close();
   }
 });

@@ -112,19 +112,27 @@ export class MatchSettle {
         return true;
       },
       offerRescue: (pluginId, request, callback) => {
-        const target = this.players.get(request?.targetId);
+        const durationMs = request?.durationMs;
         const cost = request?.cost;
-        if (!target || !target.pendingElimination || !Number.isInteger(cost) || cost < 1 || cost > 100) return false;
-        this.rescueOffers.set(target.playerId, { pluginId, cost, callback });
-        return true;
+        if (!Array.isArray(request?.targetIds) || durationMs !== 20_000
+          || !Number.isInteger(cost) || cost < 1 || cost > 100) return false;
+        let accepted = false;
+        for (const targetId of request.targetIds) {
+          const target = this.players.get(targetId);
+          if (!target?.pendingElimination) continue;
+          this.rescueOffers.set(target.playerId, { pluginId, cost, durationMs, callback });
+          accepted = true;
+        }
+        return accepted;
       },
     });
     for (const { pluginId, error } of errors) this.reportError(`plugin:${pluginId}`, error);
     const rescueCost = Math.min(...[...this.rescueOffers.values()].map((offer) => offer.cost));
-    const hasRescuer = Number.isFinite(rescueCost) && this.order.some((ps) => !ps.isBot && ps.alive && !ps.pendingElimination && ps.lp - rescueCost >= 1);
+    const eligibleOffers = [...this.rescueOffers].filter(([, offer]) => this.order.some((ps) => !ps.isBot && ps.alive && !ps.pendingElimination && ps.lp - offer.cost >= 1));
+    const hasRescuer = eligibleOffers.length > 0;
     if (rescueTargets.length && hasRescuer) {
+      this.rescueTargets = eligibleOffers.map(([id]) => id);
       this.rescueCost = rescueCost;
-      this.rescueTargets = rescueTargets.map((ps) => ps.playerId);
       this.rescueDeadline = this.sched.now() + this.scaled(20_000);
       this.setDeadline(20, () => this.expireRescueWindow());
     } else {
