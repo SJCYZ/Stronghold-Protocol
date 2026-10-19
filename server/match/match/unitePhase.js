@@ -205,7 +205,9 @@ export class MatchUnite {
     if (!result.synthetic && plan.round === 1) {
       const leaked = nextUniteLeaks(plan, result);
       if (leaked.length) {
-        const candidates = plan.candidateIds.map((id) => this.players.get(id)).filter((p) => p && p.alive);
+        const usedHelpers = new Set(plan.helpers.map((p) => p.playerId));
+        const candidates = plan.candidateIds.filter((id) => !usedHelpers.has(id))
+          .map((id) => this.players.get(id)).filter((p) => p && p.alive);
         const helpers = drawUniteHelpers(this, candidates);
         if (helpers.length) {
           plan.round = 2;

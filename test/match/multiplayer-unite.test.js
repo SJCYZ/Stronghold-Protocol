@@ -40,15 +40,6 @@ test('5 人多人变体把各来源计数漏怪合并，并从全房间完美候
     assert.deepEqual(new Set(plan.candidateIds), candidates);
     assert.equal(plan.round, 1);
 
-    const repeats = new Set();
-    for (let seed = 1; seed <= 100; seed++) {
-      m.rngMeta.setState(seed);
-      const first = drawUniteHelpers(m, [...candidates].map((id) => m.players.get(id)));
-      const second = drawUniteHelpers(m, [...candidates].map((id) => m.players.get(id)));
-      if (second.some((p) => first.some((q) => q.playerId === p.playerId))) repeats.add(seed);
-    }
-    assert.ok(repeats.size > 0, 'a later round may select a helper used in round one');
-
     const samples = new Set();
     for (let seed = 1; seed <= 12; seed++) {
       m.rngMeta.setState(seed);
@@ -60,10 +51,10 @@ test('5 人多人变体把各来源计数漏怪合并，并从全房间完美候
   }
 });
 
-function reachUnite({ survivorsFirst = { p_0: 1, p_1: 1 }, survivorsSecond = {}, seed = 810, instant = true } = {}) {
+function reachUnite({ humans = 5, normalLeaks = { p_0: 2, p_1: 1 }, survivorsFirst = { p_0: 1, p_1: 1 }, survivorsSecond = {}, seed = 810, instant = true } = {}) {
   let uniteCount = 0;
-  const h = makeMatch({ mode: 'coop', humans: 5, seed, fake: true, instant, script: (battle) => {
-    if (battle.kind !== 'unite') return { leaks: { p_0: 2, p_1: 1 } };
+  const h = makeMatch({ mode: 'coop', humans, seed, fake: true, instant, script: (battle) => {
+    if (battle.kind !== 'unite') return { leaks: normalLeaks };
     uniteCount++;
     return { duration: 1, survivors: uniteCount === 1 ? survivorsFirst : survivorsSecond };
   } }).start();
@@ -73,7 +64,7 @@ function reachUnite({ survivorsFirst = { p_0: 1, p_1: 1 }, survivorsSecond = {},
   return h;
 }
 
-test('多人联防第二轮只接收第一轮残敌并保留原来源，空场时跳过第二轮', () => {
+test('多人联防第二轮换用未参加首轮的援助者，单人防御并保留原来源', () => {
   const h = reachUnite();
   const m = h.m;
   try {
@@ -106,7 +97,8 @@ test('多人联防第二轮只接收第一轮残敌并保留原来源，空场�
     assert.equal(unites.length, 2, 'exactly two rounds start while survivors remain');
     assert.ok(unites.every((b) => b.opts.stageId === first.opts.stageId), 'both rounds preserve the round stage');
     assert.equal(m.unitePlan.round, 2);
-    assert.ok(m.unitePlan.helpers.some((p) => firstHelpers.includes(p.playerId)), 'round two may reuse a first-round helper');
+    assert.equal(m.unitePlan.helpers.length, 1, 'one unused perfect passer defends alone in round two');
+    assert.ok(m.unitePlan.helpers.every((p) => !firstHelpers.includes(p.playerId)), 'round two excludes every first-round helper');
     assert.ok(m.unitePlan.helpers.every((p) => m.unitePlan.candidateIds.includes(p.playerId)));
     assert.deepEqual(unites[1].spawns.map((s) => s.sourcePlayerId).sort(), ['p_0', 'p_1']);
     assert.ok(unites[1].spawns.every((s) => ['p_0', 'p_1'].includes(s.sourcePlayerId)));
@@ -126,6 +118,29 @@ test('多人联防第二轮只接收第一轮残敌并保留原来源，空场�
     assert.equal(FakeBattle.instances.filter((b) => b.kind === 'unite').length, 1);
   } finally {
     empty.m.dispose();
+  }
+
+  const noSecondCandidate = reachUnite({ normalLeaks: { p_0: 2, p_1: 1, p_2: 1 } });
+  try {
+    assert.equal(noSecondCandidate.m.unitePlan.candidateIds.length, 2);
+    noSecondCandidate.drive(() => noSecondCandidate.m.phase === PHASE.SETTLE);
+    assert.equal(FakeBattle.instances.filter((b) => b.kind === 'unite').length, 1, 'skip round two when every perfect passer defended in round one');
+  } finally {
+    noSecondCandidate.m.dispose();
+  }
+});
+
+test('20 人联防第二轮从未参加首轮的候选中再抽至多两人', () => {
+  const h = reachUnite({ humans: 20 });
+  try {
+    const m = h.m;
+    const firstHelperIds = m.unitePlan.helpers.map((p) => p.playerId);
+    h.drive(() => m.phase === PHASE.UNITE && m.unitePlan?.round === 2);
+    assert.equal(m.unitePlan.helpers.length, 2);
+    assert.ok(m.unitePlan.helpers.every((p) => m.unitePlan.candidateIds.includes(p.playerId)));
+    assert.ok(m.unitePlan.helpers.every((p) => !firstHelperIds.includes(p.playerId)));
+  } finally {
+    h.m.dispose();
   }
 });
 
@@ -250,10 +265,12 @@ test('多人联防第二轮 checkpoint 保留已完成第一轮而不重复结�
   const h = reachUnite();
   let restoredMatch;
   try {
+    const firstHelperIds = h.m.unitePlan.helpers.map((p) => p.playerId);
     h.drive(() => h.m.phase === PHASE.UNITE && h.m.unitePlan?.round === 2);
     assert.equal(h.m.uniteState.roundResults.length, 1);
     const doc = snapshotMatch(h.m);
     const helpers = doc.uniteState.helperIds.slice();
+    assert.ok(helpers.every((id) => !firstHelperIds.includes(id)));
     const rng = doc.rng.rngMeta;
     restoredMatch = makeMatch({ mode: 'coop', humans: 5, seed: 810, fake: true });
     assert.equal(restoreMatch(restoredMatch.m, doc, { createRngFromState, log: { warn() {}, info() {}, error() {}, debug() {} } }), true);
@@ -267,19 +284,23 @@ test('多人联防第二轮 checkpoint 保留已完成第一轮而不重复结�
   }
 });
 
-test('重复援助者的第二轮继承首轮结束时的 HP、SP 与退场状态', () => {
+test('第二轮新援助者使用自己的最近战斗 HP 与 SP', () => {
   const h = makeMatch({ mode: 'coop', humans: 5, seed: 812, fake: true }).start();
   try {
     const m = h.m;
-    const ps = m.players.get('p_2');
+    const firstHelper = m.players.get('p_2');
+    const ps = m.players.get('p_3');
+    const firstOp = firstHelper.newPiece('chess', 'chess_char_6_11_a');
+    firstHelper.board.set('10,3', firstOp);
     const op = ps.newPiece('chess', 'chess_char_6_11_a');
     ps.board.set('10,3', op);
+    m.lastResults.set(firstHelper.playerId, { unitsEnd: [{ uid: firstOp.uid, hpPct: 0.35, sp: 12, alive: true }] });
     m.lastResults.set(ps.playerId, { unitsEnd: [{ uid: op.uid, hpPct: 0.8, sp: 4, alive: true }] });
     const plan = { round: 2, helpers: [ps], leaked: [], roundResults: [{ perPlayer: {
-      [ps.playerId]: { unitsEnd: [{ uid: op.uid, hpPct: 0.35, sp: 12, alive: true }] },
+      [firstHelper.playerId]: { unitsEnd: [{ uid: firstOp.uid, hpPct: 0.35, sp: 12, alive: true }] },
     } }] };
     const { players } = uniteBattleOpts(m, plan, 60);
-    assert.deepEqual(players[0].units.find((u) => u.uid === op.uid).carryState, { hpPct: 0.35, sp: 12 });
+    assert.deepEqual(players[0].units.find((u) => u.uid === op.uid).carryState, { hpPct: 0.8, sp: 4 });
   } finally {
     h.m.dispose();
   }
@@ -306,6 +327,7 @@ test('多人联防在首轮 field 已结束、切换回调未执行时 checkpoin
 
 test('pendingResult checkpoint 恢复时重建首轮 wave 映射并保留未生成漏怪元数据', () => {
   const { h, m, plan } = makePlan(5, 815, { p_0: 2, p_1: 1 });
+  const firstHelperIds = plan.helpers.map((p) => p.playerId);
   let restoredMatch;
   try {
     const p0Leaks = plan.leaked.filter((leak) => leak.sourcePlayerId === 'p_0');
@@ -332,6 +354,7 @@ test('pendingResult checkpoint 恢复时重建首轮 wave 映射并保留未生�
 
     restoredMatch = makeMatch({ mode: 'coop', humans: 5, seed: 815, fake: true });
     assert.equal(restoreMatch(restoredMatch.m, doc, { createRngFromState, log: { warn() {}, info() {}, error() {}, debug() {} } }), true);
+    assert.ok(restoredMatch.m.unitePlan.helpers.every((p) => !firstHelperIds.includes(p.playerId)));
     const secondLeaks = restoredMatch.m.unitePlan.leaked.filter((leak) => leak.sourcePlayerId === 'p_0');
     assert.deepEqual(secondLeaks.map((leak) => [leak.mods.bountyId, leak.bounty.coins, leak.routeIndex]).sort(), [
       ['pending-0', 30, 6], ['pending-1', 31, 7],
