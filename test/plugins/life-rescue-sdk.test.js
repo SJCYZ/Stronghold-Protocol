@@ -71,3 +71,21 @@ test('client-side SDK registration does not run lifecycle callbacks or provide w
   assert.deepEqual(Object.keys(sp.match.life), ['onPostSettlement']);
   resetExtensions();
 });
+
+test('one post-settlement plugin error does not block later plugins and is returned with its owner', () => {
+  resetExtensions();
+  let laterCalled = false;
+  const first = createSDK({ id: 'first', permissions: ['match.life'] });
+  const second = createSDK({ id: 'second', permissions: ['match.life'] });
+  const failure = new Error('plugin failure');
+  first.match.life.onPostSettlement(() => { throw failure; });
+  second.match.life.onPostSettlement(() => { laterCalled = true; });
+  const errors = extensions.runPostSettlement({
+    players: [], changeLife() {}, revive() {}, offerRescue() {},
+  });
+  assert.equal(laterCalled, true);
+  assert.equal(errors.length, 1);
+  assert.equal(errors[0].pluginId, 'first');
+  assert.equal(errors[0].error, failure);
+  resetExtensions();
+});

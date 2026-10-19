@@ -128,12 +128,18 @@ export function runPostSettlement({ players, changeLife, revive, offerRescue }) 
     playerId: player.playerId, isBot: player.isBot, alive: player.alive, lp: player.lp,
     pendingElimination: player.pendingElimination, lifeRescueUsed: player.lifeRescueUsed,
   })));
-  for (const [pluginId, handler] of lifeHandlers) handler({
-    players: view, changeLife, revive,
-    offerRescue: (request, callback) => offerRescue(pluginId, request, confirmation => callback({
-      rescuerId: confirmation.rescuerId, targetId: confirmation.targetId, changeLife, revive,
-    })),
-  });
+  const errors = [];
+  for (const [pluginId, handler] of lifeHandlers) {
+    try {
+      handler({
+        players: view, changeLife, revive,
+        offerRescue: (request, callback) => offerRescue(pluginId, request, confirmation => callback({
+          rescuerId: confirmation.rescuerId, targetId: confirmation.targetId, changeLife, revive,
+        })),
+      });
+    } catch (error) { errors.push({ pluginId, error }); }
+  }
+  return errors;
 }
 export function registerCombatClock(plugin, onPhase) {
   if (typeof onPhase !== 'function') fail('PLUGIN_SCRIPT_CONFLICT', 'combat clock handler must be a function');
