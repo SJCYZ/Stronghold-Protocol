@@ -179,6 +179,44 @@ test('残敌按 source、enemy、tag 与 mods 精确关联，避免不同悬赏�
   }
 });
 
+test('未生成漏怪按首轮 wave 时间回映，保留原 mods、bounty 与 route 数据', () => {
+  const { h, m, plan } = makePlan(5, 814, { p_0: 2, p_1: 1 });
+  try {
+    const p0Leaks = plan.leaked.filter((leak) => leak.sourcePlayerId === 'p_0');
+    assert.equal(p0Leaks.length, 2);
+    for (const [index, leak] of p0Leaks.entries()) {
+      leak.tag = 'bounty';
+      leak.mods = { bountyId: `unspawned-${index}` };
+      leak.bounty = { coins: 20 + index, ownerPlayerId: 'p_0' };
+      leak.routeIndex = 4 + index;
+    }
+    m.startUnite(plan);
+    const first = FakeBattle.instances.filter((battle) => battle.kind === 'unite').at(-1);
+    const spawnA = first.spawns.find((spawn) => spawn.sourcePlayerId === 'p_0' && spawn.mods?.bountyId === 'unspawned-0');
+    const spawnB = first.spawns.find((spawn) => spawn.sourcePlayerId === 'p_0' && spawn.mods?.bountyId === 'unspawned-1');
+    assert.ok(spawnA && spawnB);
+    const indexA = plan.waveLeakSources.indexOf(p0Leaks[0]);
+    const indexB = plan.waveLeakSources.indexOf(p0Leaks[1]);
+    const tiedTime = Math.min(spawnA.time, spawnB.time);
+    plan.waveSpawns[indexA].time = tiedTime;
+    plan.waveSpawns[indexB].time = tiedTime;
+
+    m._completeUniteRound(plan, {
+      perPlayer: { p_0: { leaked: [{ enemyKey: spawnA.enemyKey, mods: spawnA.mods, sourcePlayerId: 'p_0', tag: spawnA.tag, counted: true }] } },
+      unspawned: [{ enemyKey: spawnB.enemyKey, sourcePlayerId: 'p_0', tag: spawnB.tag, time: tiedTime }],
+    });
+
+    const secondLeaks = m.unitePlan.leaked.filter((leak) => leak.sourcePlayerId === 'p_0');
+    assert.deepEqual(secondLeaks.map((leak) => [leak.mods.bountyId, leak.bounty.coins, leak.routeIndex]).sort(), [
+      ['unspawned-0', 20, 4], ['unspawned-1', 21, 5],
+    ]);
+    const second = FakeBattle.instances.filter((battle) => battle.kind === 'unite').at(-1);
+    assert.deepEqual(second.spawns.filter((spawn) => spawn.sourcePlayerId === 'p_0').map((spawn) => spawn.mods.bountyId).sort(), ['unspawned-0', 'unspawned-1']);
+  } finally {
+    m.dispose();
+  }
+});
+
 test('多人联防 checkpoint 保存当前轮次与已抽援助者，恢复不再抽样', () => {
   const h = reachUnite({ instant: false });
   const m = h.m;

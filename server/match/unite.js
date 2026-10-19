@@ -182,6 +182,8 @@ export function uniteStageId(gd, helperCount, roundStageId = null) {
 /** Battle options for the unite field (without data/logger, added by the match). */
 export function uniteBattleOpts(m, plan, timeLimit) {
   const wave = buildUniteWave(m.gd, plan.leaked, plan.helpers.length, timeLimit);
+  plan.waveSpawns = wave.spawns;
+  plan.waveLeakSources = wave.leakSources;
   const players = plan.helpers.map((ps, i) => {
     const carry = new Map();
     const r = plan.round === 2 && plan.roundResults?.[0]?.perPlayer?.[ps.playerId]

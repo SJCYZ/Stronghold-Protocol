@@ -21,15 +21,46 @@ function nextUniteLeaks(plan, result) {
     queue.push(leak);
     available.set(key, queue);
   }
+  const scheduled = new Map();
+  for (let i = 0; i < Math.min(plan.waveSpawns?.length || 0, plan.waveLeakSources?.length || 0); i++) {
+    const spawn = plan.waveSpawns[i];
+    const key = uniteUnspawnedKey(spawn);
+    const queue = scheduled.get(key) || [];
+    queue.push(plan.waveLeakSources[i]);
+    scheduled.set(key, queue);
+  }
+  const used = new Set();
   const next = [];
   const take = (leak) => {
     if (!leak || leak.counted === false || typeof leak.enemyKey !== 'string' || !leak.sourcePlayerId) return;
     const queue = available.get(uniteLeakKey(leak));
-    next.push(queue?.length ? queue.shift() : { ...leak, mods: leak.mods ? { ...leak.mods } : null });
+    const source = queue?.length ? queue.shift() : leak;
+    used.add(source);
+    next.push(copyUniteLeak(source));
   };
   for (const pp of Object.values(result.perPlayer || {})) for (const leak of pp?.leaked || []) take(leak);
-  for (const leak of result.unspawned || []) take(leak);
+  for (const leak of result.unspawned || []) {
+    if (!leak || typeof leak.enemyKey !== 'string' || !leak.sourcePlayerId) continue;
+    const queue = scheduled.get(uniteUnspawnedKey(leak));
+    let source;
+    while (queue?.length && !source) {
+      const candidate = queue.shift();
+      if (!used.has(candidate)) source = candidate;
+    }
+    if (source && source.counted !== false) {
+      used.add(source);
+      next.push(copyUniteLeak(source));
+    }
+  }
   return next;
+}
+
+function uniteUnspawnedKey(leak) {
+  return `${leak.sourcePlayerId || ''}\0${leak.enemyKey || ''}\0${leak.tag || ''}\0${Number(leak.time) || 0}`;
+}
+
+function copyUniteLeak(leak) {
+  return { ...leak, mods: leak.mods ? { ...leak.mods } : null, bounty: leak.bounty ? { ...leak.bounty } : leak.bounty };
 }
 
 function uniteLeakKey(leak) {
