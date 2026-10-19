@@ -31,6 +31,24 @@ export function phaseMode(phase) {
 }
 
 export const isCombatPhase = (phase) => COMBAT_PHASES.has(phase);
+
+/** Public rescue targets for the native SETTLE panel; Match remains authoritative for every request. */
+export function rescueTargets(pub, players, myId, myLp, now) {
+  if (pub?.phase !== PHASE.SETTLE || !Number.isFinite(pub.deadline) || pub.deadline <= now || !Array.isArray(pub.rescue?.targets)) return [];
+  const rows = Array.isArray(players) ? players : [];
+  const donor = rows.find((p) => p.playerId === myId);
+  const remain = Math.max(0, Math.ceil((pub.deadline - now) / 1000));
+  return pub.rescue.targets.flatMap((target) => {
+    const player = rows.find((p) => p.playerId === target?.playerId);
+    if (!player || !Number.isFinite(target.cost) || target.cost < 1) return [];
+    const rescued = player.alive === true && player.pendingElimination !== true;
+    if (!rescued && player.pendingElimination !== true) return [];
+    return [{ playerId: player.playerId, name: player.name || t('博士'), cost: target.cost, rescued,
+      eligible: !rescued && donor?.alive === true && donor.playerId !== player.playerId && Number.isFinite(myLp) && myLp - target.cost >= 1,
+      remain }];
+  });
+}
+
 /**
  * The HUD's "你已被淘汰 · 可继续观战队友" pill of an eliminated player: outside combat only — in combat and in the SETTLE
  * after it the combat HUD (screens/game.js CombatHud, rendered for mode 'settle' too) already says it, and two
