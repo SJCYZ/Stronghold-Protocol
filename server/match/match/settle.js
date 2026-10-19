@@ -122,6 +122,9 @@ export class MatchSettle {
   finish({ victory, hiddenCleared = false, reason = 'defeat' }) {
     if (this.ended || this.disposed) return;
     this.ended = true;
+    this._endCombatClock();
+    this._combatDeadlineGt = null;
+    this._bossOvertimeGt = null;
     this._cancelWorkerTasks();
     if (this.runner) { try { this.runner.stop(); } catch { /* ignore */ } this.runner = null; }
     this._stopClientCombat();

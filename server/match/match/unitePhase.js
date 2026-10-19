@@ -16,11 +16,13 @@ export class MatchUnite {
   startUnite(plan) {
     if (this.clientCombat) { this._startUniteClient(plan); return; }
     this.phase = PHASE.UNITE;
+    this._beginCombatClock(PHASE.UNITE);
     this.unitePlan = plan;
     const limit = this.wave ? this.wave.timeLimit : 60;
     const battle = this.newBattle(this._uniteOpts(plan, limit));
     this.fields = [{ fieldId: 'u', kind: 'unite', players: plan.helpers.map((p) => p.playerId), battle, live: true }];
-    this.deadline = this.sched.instant ? 0 : this.sched.now() + Math.round((limit / this.gameSpeed) * 1000);
+    this._combatDeadlineGt = limit;
+    this.deadline = this._combatWallAt(limit);
     this._defaultWatch();
     this.markPublic();
     this.tickerText(msg('联防阶段：{names} 迎战突破防线的敌人', { names: plan.helpers.map((p) => p.name) }), FLOW_TICKER_PRIORITY);
@@ -30,6 +32,8 @@ export class MatchUnite {
       onTick: (runner) => this._uniteTick(runner),
       onDone: (runner) => {
         if (this.phase !== PHASE.UNITE) return;
+        this._endCombatClock();
+        this._combatDeadlineGt = null;
         const res = runner.resultOf(this.fields[0]);
         this._collectSimErrors(this.fields[0], res);
         this.fields[0].live = false;
@@ -70,10 +74,12 @@ export class MatchUnite {
 
   _startUniteClient(plan) {
     this.phase = PHASE.UNITE;
+    this._beginCombatClock(PHASE.UNITE);
     this.unitePlan = plan;
     const limit = this.wave ? this.wave.timeLimit : 60;
     const f = this._ccField({ fieldId: 'u', kind: 'unite', players: plan.helpers.map((p) => p.playerId), opts: this._uniteOpts(plan, limit) });
-    this.deadline = this.sched.instant ? 0 : this.sched.now() + Math.round((limit / this.gameSpeed) * 1000);
+    this._combatDeadlineGt = limit;
+    this.deadline = this._combatWallAt(limit);
     this.watchers.clear();
     this._launch([f]);
     // helpers and everyone else (as observers, spectator seats included) simulate the same 联防 spec locally
@@ -87,6 +93,8 @@ export class MatchUnite {
 
   _finishUniteClient() {
     if (this.phase !== PHASE.UNITE) return;
+    this._endCombatClock();
+    this._combatDeadlineGt = null;
     const f = this.fields[0];
     const res = f.result;
     this._collectSimErrors(f, res);

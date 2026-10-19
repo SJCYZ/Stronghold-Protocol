@@ -74,7 +74,7 @@ export class MatchClientCombat {
   /** Game seconds a field has run (its clock; a finished field: its final time). */
   _fieldElapsed(f) {
     if (f.done && f.result && Number.isFinite(f.result.time)) return f.result.time;
-    const gt = Math.max(0, ((this._clockNow() - f.startAt) / 1000) * this.gameSpeed);
+    const gt = Math.max(0, this._combatElapsed() - (Number(f.clockStartGt) || 0));
     if (f.endGt != null) return Math.min(gt, f.endGt);
     const lim = f.spec && f.spec.timeLimit > 0 ? f.spec.timeLimit : HARD_CAP_SECONDS;
     return Math.min(gt, lim);
@@ -99,7 +99,8 @@ export class MatchClientCombat {
       spec: this.spectators.has(pid) ? this._spectatorSpec(f) : f.spec,
       authoritative: !!(!f.done && !f.verifyJob && f.mode === 'client' && f.authority === pid && !watch),
       startAt: f.startAt, serverNow: this.sched.now(), elapsed: Math.round(this._fieldElapsed(f) * 1000) / 1000,
-      speed: this.gameSpeed, watch: !!watch, done: !!f.done,
+      speed: this.gameSpeed, phase: this.phase, phaseInstance: this._combatClock.phaseInstance,
+      phaseElapsed: this._combatElapsed(), watch: !!watch, done: !!f.done,
     };
   }
 
@@ -112,8 +113,9 @@ export class MatchClientCombat {
   /** Give every field its authority (a connected human) or run it on the server. */
   _launch(fields) {
     const now = this.sched.now();
+    const clockStartGt = this._combatElapsed();
     this.fields = fields;
-    for (const f of fields) { f.startAt = now; f.lastProgressAt = now; }
+    for (const f of fields) { f.startAt = now; f.clockStartGt = clockStartGt; f.lastProgressAt = now; }
     for (const f of fields) {
       const auth = this._authorityFor(f);
       if (auth) this._assignClient(f, auth);
@@ -136,10 +138,23 @@ export class MatchClientCombat {
     if (f.deadlineTimer) { this.cancel(f.deadlineTimer); f.deadlineTimer = null; }
     if (f.verifying || f.verifyJob) return;
     const lim = f.spec.timeLimit > 0 ? f.spec.timeLimit : 60;
-    const at = f.startAt + Math.round((lim / this.gameSpeed) * 1000) + RESULT_GRACE_MS;
-    f.deadlineTimer = this.later(Math.max(0, at - this.sched.now()), () => {
+    const now = this.sched.now();
+    const elapsed = this._fieldElapsed(f);
+    let wait;
+    if (elapsed < lim) {
+      f.deadlineGraceDueAt = null;
+      wait = (lim - elapsed) * 1000 / this.gameSpeed;
+    } else {
+      if (f.deadlineGraceDueAt == null) f.deadlineGraceDueAt = now + RESULT_GRACE_MS;
+      wait = Math.max(0, f.deadlineGraceDueAt - now);
+    }
+    f.deadlineTimer = this.later(wait, () => {
       f.deadlineTimer = null;
       if (f.done || f.mode !== 'client') return;
+      if (this._fieldElapsed(f) < lim || (f.deadlineGraceDueAt != null && this.sched.now() < f.deadlineGraceDueAt)) {
+        this._armDeadline(f);
+        return;
+      }
       this._runOnServer(f, 'timeout');
     });
   }
@@ -149,8 +164,8 @@ export class MatchClientCombat {
     if (f.doneTimer) { this.cancel(f.doneTimer); f.doneTimer = null; }
     if (f.done || f.result == null) return;
     if (this.paused) { f.rearmRelease = true; return; }
-    const doneAt = f.startAt + Math.round(((f.endGt || 0) / this.gameSpeed) * 1000);
-    const wait = this.sched.instant ? 0 : Math.max(0, doneAt - this.sched.now());
+    const remaining = (Number(f.clockStartGt) || 0) + (Number(f.endGt) || 0) - this._combatElapsed();
+    const wait = this.sched.instant ? 0 : Math.max(0, remaining * 1000 / this.gameSpeed);
     f.doneTimer = this.later(wait, () => { f.doneTimer = null; this._fieldDone(f); });
   }
 

@@ -41,6 +41,7 @@ export class MatchBoss {
     const alive = this.alivePlayers();
     if (!alive.length) { this.finish({ victory: false, reason: 'eliminated' }); return; }
     this.phase = hidden ? PHASE.HIDDEN_CORE : PHASE.FINAL_ASSAULT;
+    this._beginCombatClock(this.phase);
     this.lastResults = new Map();
     if (!hidden) {
       this.teamLp = alive.reduce((s, p) => s + Math.max(0, p.lp), 0);
@@ -120,15 +121,15 @@ export class MatchBoss {
     this.overtimeApplied = 0;
     // HUD: the boss level's countdown (maxPlayTime, 120 real s — the battle goes on past it) and the moment the
     // overtime drain starts (150 real s), both on the field clock
-    const onClock = (realS) => this.sched.now() + Math.round(((realS * this.gd.combatTimeScale) / this.gameSpeed) * 1000);
     const levelTime = this.gd.bossLevelTime(this.round);
     // Maintainer 2026-10-10: only teams with an AI teammate keep the extra grace after the visible countdown.
     // Freeze this choice for the fight; a disconnect / host transfer cannot change its LP clock midway.
     const team = this.order.filter((p) => !p.left);
     this.bossOvertimeStartReal = team.length > 1 && team.some((p) => p.isBot)
       ? this.gd.bossOvertimeAfterReal : (levelTime || this.gd.bossOvertimeAfterReal);
-    this.deadline = this.sched.instant || !levelTime ? 0 : onClock(levelTime);
-    this.overtimeAt = this.sched.instant ? 0 : onClock(this.bossOvertimeStartReal);
+    this._combatDeadlineGt = levelTime ? levelTime * this.gd.combatTimeScale : 0;
+    this._bossOvertimeGt = this.bossOvertimeStartReal * this.gd.combatTimeScale;
+    this._refreshCombatDeadlines();
     if (this.clientCombat) { this._startFinalClient(hidden); return; }
     this._defaultWatch();
     this.markPublic();
@@ -143,7 +144,6 @@ export class MatchBoss {
     const pool = this.bossPool;
     const recs = this.fields.map((x) => this._ccField({ fieldId: x.fieldId, kind: x.kind, players: x.players, opts: x.opts, boss: { poolHp: pool.hp, poolMax: pool.maxHp } }));
     this._finalEnding = null;
-    this._bossStartAt = this.sched.now();
     this.watchers.clear();
     if (!recs.some((f) => this._authorityFor(f))) {
       // nobody to simulate on a client: the server runs every boss field (FieldRunner, no streaming)
@@ -321,7 +321,7 @@ export class MatchBoss {
     if (this.phase !== PHASE.FINAL_ASSAULT && this.phase !== PHASE.HIDDEN_CORE) return;
     if (this.paused) return; // re-armed by _resume
     const now = this.sched.now();
-    this._applyOvertime(((now - this._bossStartAt) / 1000) * this.gameSpeed);
+    this._applyOvertime(this._combatElapsed());
     for (const f of this.fields) {
       // reports held back by the plausibility budget are credited as the field clock advances
       if (f.cc && !f.done && f.mode === 'client') {
@@ -335,7 +335,7 @@ export class MatchBoss {
     }
     this._checkFinalEnd();
     this._broadcastPool(false);
-    if (this.fields.some((f) => f.cc && !f.done)) this._bossClock = this.later(BOSS_CLOCK_MS, () => this._bossClockTick());
+    if (this._bossClockOn && this.fields.some((f) => f.cc && !f.done)) this._bossClock = this.later(BOSS_CLOCK_MS, () => this._bossClockTick());
     else this._bossClockOn = false;
   }
 
@@ -350,6 +350,9 @@ export class MatchBoss {
   _endFinal(reason) {
     if (this._finalEnding) return;
     this._finalEnding = reason;
+    this._combatClock.freeze();
+    this._bossClockOn = false;
+    if (this._bossClock) { this.cancel(this._bossClock); this._bossClock = null; }
     this._broadcastPool(true);
     for (const f of this.fields) {
       if (!f.cc || f.done) continue;
@@ -496,7 +499,7 @@ export class MatchBoss {
   }
 
   _bossTick(runner) {
-    this._applyOvertime(runner.time);
+    this._applyOvertime(this.sched.instant ? runner.time : this._combatElapsed());
     if (this.teamLp <= 0 && this.bossPool.hp > 0) runner.forceAll('forced');
     // client-side combat with every boss field on the server: humans that reconnect / watch run display replicas
     // whose LocalBossPool follows b.pool
@@ -510,6 +513,9 @@ export class MatchBoss {
   /** Every boss field is over: stats, bounties, then the Hidden Core or RESULT. */
   _finishFinal(hidden, resultOf) {
     if (this.phase !== (hidden ? PHASE.HIDDEN_CORE : PHASE.FINAL_ASSAULT)) return;
+    this._endCombatClock();
+    this._combatDeadlineGt = null;
+    this._bossOvertimeGt = null;
     this._stopClientCombat();
     // the end condition the server registered first decides (client-side combat: _endFinal — pool 0 → victory, team LP 0
     // → defeat); a boss field's final result may never turn a defeat into a victory (user playtest #6 item 5)

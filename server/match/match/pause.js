@@ -23,6 +23,7 @@ export class MatchPause {
     if (!battlePhase || this._finalEnding || !this.fields.some((f) => f.live && !f.done)) return fail(ERR.WRONG_PHASE, 'no battle running');
     this.paused = true;
     this._pausedAt = this.sched.now();
+    this._combatClock.setPaused(true);
     for (const f of this.fields) {
       if (!f.cc) continue;
       if (f.deadlineTimer) { this.cancel(f.deadlineTimer); f.deadlineTimer = null; f.rearmDeadline = true; }
@@ -40,13 +41,14 @@ export class MatchPause {
     this.paused = false;
     this._pausedAt = 0;
     this.pausedMs += d;
+    this._combatClock.setPaused(false);
     if (this.deadline) this.deadline += d;
     if (this.overtimeAt) this.overtimeAt += d;
-    if (this._bossStartAt != null) this._bossStartAt += d;
     for (const f of this.fields) {
       if (!f.cc || f.done) continue;
       f.startAt += d;
       f.lastProgressAt += d;
+      if (f.deadlineGraceDueAt != null) f.deadlineGraceDueAt += d;
       if (f.rearmDeadline && f.mode === 'client') this._armDeadline(f);
       if (f.rearmRelease && f.mode === 'server') this._armRelease(f);
       f.rearmDeadline = false;

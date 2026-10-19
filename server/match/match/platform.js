@@ -231,6 +231,7 @@ export class MatchPlatform {
     this.disposed = true;
     this._cancelWorkerTasks();
     if (this.runner) { try { this.runner.stop(); } catch { /* ignore */ } }
+    this._endCombatClock();
     this._stopClientCombat();
     this._cancelRehearsal();
     for (const h of this._timers) { try { this.sched.clearTimeout(h); } catch { /* ignore */ } }

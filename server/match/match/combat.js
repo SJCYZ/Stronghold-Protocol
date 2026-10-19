@@ -76,11 +76,13 @@ export class MatchCombat {
   startCombat() {
     if (this.clientCombat) { this._startCombatClient(); return; }
     this.phase = PHASE.COMBAT;
+    this._beginCombatClock(PHASE.COMBAT);
     const alive = this.alivePlayers();
     this.lastResults = new Map();
     this.fields = alive.map((ps) => ({ fieldId: `n:${ps.playerId}`, kind: 'normal', players: [ps.playerId], battle: this._normalBattle(ps), live: true }));
     const limit = this.wave ? this.wave.timeLimit : 60;
-    this.deadline = this.sched.instant ? 0 : this.sched.now() + Math.round((limit / this.gameSpeed) * 1000);
+    this._combatDeadlineGt = limit;
+    this.deadline = this._combatWallAt(limit);
     this._defaultWatch();
     this.markPublic();
     this.runner = new FieldRunner(this, this.fields, { onDone: (runner) => this.combatDone(runner) });
@@ -89,12 +91,14 @@ export class MatchCombat {
 
   _startCombatClient() {
     this.phase = PHASE.COMBAT;
+    this._beginCombatClock(PHASE.COMBAT);
     const alive = this.alivePlayers();
     this.lastResults = new Map();
     this.watchers.clear();
     const fields = alive.map((ps) => this._ccField({ fieldId: `n:${ps.playerId}`, kind: 'normal', players: [ps.playerId], opts: this._normalOpts(ps) }));
     const limit = this.wave ? this.wave.timeLimit : 60;
-    this.deadline = this.sched.instant ? 0 : this.sched.now() + Math.round((limit / this.gameSpeed) * 1000);
+    this._combatDeadlineGt = limit;
+    this.deadline = this._combatWallAt(limit);
     this._launch(fields);
     // every fighting human runs its own field; eliminated humans (and spectator seats) keep watching (research 09 §3.1
     // "Keep-watching auto-observes the first available field", switching freely with 前往查看): a replica of the field
@@ -140,6 +144,8 @@ export class MatchCombat {
   /** Every normal field has its result: record them, then 联防 or SETTLE. */
   _finishCombat(resultOf) {
     if (this.phase !== PHASE.COMBAT) return;
+    this._endCombatClock();
+    this._combatDeadlineGt = null;
     this._stopClientCombat();
     for (const f of this.fields) {
       const res = resultOf(f);

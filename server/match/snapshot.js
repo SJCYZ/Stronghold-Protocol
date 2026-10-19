@@ -179,7 +179,7 @@ function withProps(value, extra) {
  * order, pool, schedulers) or transient (clocks, view plumbing, timers, battle objects).
  */
 const MATCH_FIELDS = Object.freeze([
-  'roomCode', 'mode', 'difficulty', 'modeId', 'seed', 'isSolo', 'consoleEnabled', 'battlePrefix', 'timerScale', 'gameSpeed',
+  'roomCode', 'mode', 'difficulty', 'modeId', 'seed', 'isSolo', 'consoleEnabled', 'battlePrefix', 'timerScale', 'gameSpeed', '_combatPhaseSeq',
   'botRehearsal', 'clientCombat', 'verifyMode', 'headlessSliceMs', 'verifyStats', '_battleSeq', 'pausedMs',
   'stageId', 'factions', 'bossId', 'hiddenBossId', 'disabledBonds', 'staticInactiveBonds', 'bannedChess',
   'aiPicksLast', 'setupRevision', '_setupVoteSeq',

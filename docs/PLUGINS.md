@@ -787,7 +787,7 @@ empty. Only plugin `char_x_…` ids add a shop charId lookup; official dispatch 
 | `sp.kits.register(id, builder)` | `(bb, chess, def) => Kit`, SIM §7; `sim.code` |
 | `sp.enemies.register(id, builder)` | `(def) => { install(battle, enemy) }`; install on enemySpawn before ordinary enemy handlers; `sim.code` |
 | `sp.content.register({ id?, install?, registerMeta? })` | One module id (defaults to plugin id); install per battle; registerMeta receives `{ register(key, handler) }` during setup; permissions for each half |
-| `sp.clock.onPhase(handler)` | `clock.speed`; 每个内容组合最多注册一个控制器。Match 服务端在进入活动战斗阶段时调用阶段处理器；浏览器插件环境只允许注册，不执行时钟回调或修改速度。上下文包含 `phase`、`elapsed()`、`after(seconds, callback)`、`every(seconds, callback)` 与 `setSpeed(value)`。 |
+| `sp.clock.onPhase(handler)` | `clock.speed`; 每个内容组合最多注册一个控制器。Match 服务端在进入活动战斗阶段时调用阶段处理器；浏览器插件环境只允许注册，不执行时钟回调或修改速度。上下文包含 `phase`、`elapsed()`、`after(seconds, callback)`、`every(seconds, callback)` 与 `setSpeed(value)`。`after` 的 seconds 是从阶段起点算起的逻辑秒；`every` 从注册时起按逻辑秒重复。速度严格为 `0.1`–`3.0`、步进 `0.1`；暂停时钟冻结，阶段结束自动清除计时器。 |
 | `sp.meta.register(key, handler)` | META §2 keys and hook contracts; `meta.code` |
 | `sp.kit` / imported `kit` | `num`, `talentBb`, `talentGrid`, `moduleBb`, `traitBb`, `moduleOn`, `up`, `cheb`, `isMainHit`, `byEnemyAttack`, `skillBusy`, `giveSp`, `onHitBy`, `onHitOn`, `onDamagedOn`, `enemiesInGrid`, `alliesInGridOf`, `enemyInRange`, `statBuff`, `toggleBuff`, `instantKind`, `skillRec`, `skillBbOf`, `batMod` — tier1 signatures |
 | `sp.math` / imported `math` | The exports of `server/sim/detmath.js` |
@@ -804,6 +804,8 @@ count too; exhaustion unwinds that callback, cancels the plugin's timers and rem
 statuses/summons are not recalled, as in DSL. [ASSUMED] Prep hooks share a separate 8000-call counter per match round
 across seats; prep effects are server authoritative. Direct engine mutations remain part of kit duties in both modes. Worker/child watchdogs interrupt nonreturning
 simulation code; native trusted page code can still block the page.
+
+Match 阶段时钟回调在单场战斗之外执行，因此每个活动阶段单独限制为 8000 次。回调抛错或耗尽预算时，Match 记录插件时钟错误并清除该控制器本阶段剩余计时器。`setSpeed` 参数无效时记录错误并保持当前速度。
 
 **Owner gates.** `SP_PLUGIN_SCRIPTS=trusted` plus `plugins/config.json`:
 

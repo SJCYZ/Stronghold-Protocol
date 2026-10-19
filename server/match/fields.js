@@ -97,7 +97,10 @@ export class FieldRunner {
     this.m = m;
     this.fields = fields;
     this.emit = emit !== false;
-    for (const f of fields) f.live = !f.battle.finished;
+    for (const f of fields) {
+      f.live = !f.battle.finished;
+      if (f.clockStartGt == null) f.clockStartGt = m._combatElapsed?.() || 0;
+    }
     this.onTick = onTick;
     this.onDone = onDone;
     this.ticks = 0;
@@ -128,6 +131,10 @@ export class FieldRunner {
     if (this.interval) { this.m.sched.clearInterval(this.interval); this.interval = null; }
   }
 
+  rebase(now = this.m.sched.now()) { this.last = now; }
+
+  flush(now, speed) { if (!this.m.sched.instant && !this.stopped && !this.done) this._pump(now, speed); }
+
   _runInstant() {
     const cap = Math.ceil(HARD_CAP_SECONDS / TICK);
     while (!this.stopped && !this.done && this.ticks < cap) { // loop-cap: tick cap
@@ -138,13 +145,14 @@ export class FieldRunner {
     this._checkDone();
   }
 
-  _pump() {
+  _pump(nowOverride = null, speedOverride = null) {
     if (this.stopped || this.done) return;
-    const now = this.m.sched.now();
+    const now = nowOverride == null ? this.m.sched.now() : nowOverride;
     const dt = Math.max(0, now - this.last);
     this.last = now;
     if (this.m.paused) return; // solo pause (Match.setPause): the field clock stands still
-    const speed = Number.isFinite(this.m.gameSpeed) && this.m.gameSpeed > 0 ? this.m.gameSpeed : GAME_SPEED;
+    const speed = Number.isFinite(speedOverride) && speedOverride > 0 ? speedOverride
+      : Number.isFinite(this.m.gameSpeed) && this.m.gameSpeed > 0 ? this.m.gameSpeed : GAME_SPEED;
     this.acc += (dt / 1000) * speed;
     const cap = maxTicksPerInterval(speed);
     let n = Math.floor(this.acc / TICK + 1e-9);
@@ -425,15 +433,20 @@ export class HeadlessPacer {
 
   stop() { this.stopped = true; this._clear(); this.entries.clear(); }
 
+  rebase(now = this.m.sched.now()) { this.last = now; }
+
+  flush(now, speed) { if (!this.stopped && this.entries.size) this._pump(now, speed); }
+
   _clear() { if (this.interval) { this.m.sched.clearInterval(this.interval); this.interval = null; } }
 
-  _pump() {
+  _pump(nowOverride = null, speedOverride = null) {
     if (this.stopped) return;
-    const now = this.m.sched.now();
+    const now = nowOverride == null ? this.m.sched.now() : nowOverride;
     const dt = Math.max(0, now - this.last);
     this.last = now;
     if (this.m.paused) return; // solo pause (Match.setPause): the field clock stands still
-    const speed = Number.isFinite(this.m.gameSpeed) && this.m.gameSpeed > 0 ? this.m.gameSpeed : GAME_SPEED;
+    const speed = Number.isFinite(speedOverride) && speedOverride > 0 ? speedOverride
+      : Number.isFinite(this.m.gameSpeed) && this.m.gameSpeed > 0 ? this.m.gameSpeed : GAME_SPEED;
     this.acc += (dt / 1000) * speed;
     const cap = maxTicksPerInterval(speed);
     let n = Math.floor(this.acc / TICK + 1e-9);
