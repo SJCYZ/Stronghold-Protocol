@@ -366,6 +366,37 @@ export function createBattleRunner(deps) {
   /** Target tick of an entry on its clock. */
   const targetTick = (e, t) => Math.max(0, Math.floor((((t - e.t0) / 1000) * e.speed) / TICK + 1e-9));
 
+  function serverTransitMs(serverAt) {
+    if (!Number.isFinite(serverAt) || pausedAt != null || typeof net?.serverNow !== 'function' || net.clockSynced === false) return 0;
+    try {
+      const current = net.serverNow();
+      return Number.isFinite(current) ? Math.max(0, current - serverAt) : 0;
+    } catch { return 0; }
+  }
+
+  function elapsedNow(e, at = clock()) {
+    const dt = Number.isFinite(e.elapsedAt) ? Math.max(0, at - e.elapsedAt) : 0;
+    return Math.max(0, (Number(e.elapsed) || 0) + dt * e.speed / 1000);
+  }
+
+  function rebaseEntry(e, elapsed, speed, serverAt, at = clock()) {
+    e.speed = speed;
+    e.elapsed = Math.max(0, elapsed + serverTransitMs(serverAt) * speed / 1000);
+    e.elapsedAt = at;
+    if (e.t0 != null) e.t0 = at - (e.elapsed / speed) * 1000;
+  }
+
+  function syncCurrentFieldSpeed(e) {
+    if (e !== cur) return;
+    try {
+      const field = store.get?.()?.match?.field;
+      if (field?.battleId !== e.battleId || field.speed === e.speed) return;
+      const updated = { ...field, speed: e.speed };
+      store.patch('match', { field: updated });
+      emit('field', updated);
+    } catch { /* field metadata is optional */ }
+  }
+
   /** Apply a server speed change to fields in the same combat phase generation. */
   function onSpeed(msg) {
     if (!msg || typeof msg.phase !== 'string' || !msg.phase
@@ -380,19 +411,9 @@ export function createBattleRunner(deps) {
       if (e.phase !== msg.phase || e.phaseInstance !== msg.phaseInstance || !Number.isFinite(e.phaseOrigin)) continue;
       if (msg.elapsed < e.phaseOrigin) continue;
       const elapsed = msg.elapsed - e.phaseOrigin;
-      e.speed = msg.speed;
-      e.elapsed = elapsed;
-      if (e.t0 != null) e.t0 = receivedAt - (elapsed / e.speed) * 1000;
-      if (e === cur) {
-        try {
-          const field = store.get?.()?.match?.field;
-          if (field?.battleId === e.battleId) {
-            const updated = { ...field, speed: e.speed };
-            store.patch('match', { field: updated });
-            emit('field', updated);
-          }
-        } catch { /* field metadata is optional */ }
-      }
+      rebaseEntry(e, elapsed, msg.speed, msg.serverNow, receivedAt);
+      syncCurrentFieldSpeed(e);
+      // 已提交给 Worker 的步进批次无法撤销；后续批次会立即按新时钟基准推进。
       changed = true;
     }
     if (changed) { publishState(); schedule(); }
@@ -593,7 +614,10 @@ export function createBattleRunner(deps) {
       const d = Math.max(0, now() - pausedAt);
       pausedAt = null;
       // a pending battle not built yet takes its clock when it is built
-      for (const e of [...entries.values(), ...pending.values()]) if (e.t0 != null) { e.t0 += d; e.lastProgressAt += d; }
+      for (const e of [...entries.values(), ...pending.values()]) {
+        if (e.t0 != null) { e.t0 += d; e.lastProgressAt += d; }
+        if (Number.isFinite(e.elapsedAt)) e.elapsedAt += d;
+      }
     }
     publishState();
     schedule();
@@ -716,6 +740,7 @@ export function createBattleRunner(deps) {
   async function onStart(msg) {
     if (!msg || typeof msg !== 'object' || !msg.spec || typeof msg.battleId !== 'string') return;
     const speed = Number(msg.speed) > 0 ? Number(msg.speed) : 2;
+    const receivedAt = clock();
     const seq = ++startSeq;
     const prep = pending.get(msg.battleId);
     const existing = entries.get(msg.battleId) || prep;
@@ -729,16 +754,12 @@ export function createBattleRunner(deps) {
       const was = existing.authoritative;
       existing.authoritative = !!msg.authoritative && !existing.failed && !existing.resultSent && csAccepted(existing.spec.cs, { loading: !existing.battle });
       existing.watch = !!msg.watch;
+      rebaseEntry(existing, Number(msg.elapsed) || 0, speed, msg.serverNow, receivedAt);
+      syncCurrentFieldSpeed(existing);
       // the server still waits for this finished battle's result (lost with the socket, or its answer was): again
       if (msg.authoritative && existing.resultSent) deliver(existing);
-      if (!existing.battle) {
-        // still loading: it starts from the latest field clock
-        existing.elapsed = Number(msg.elapsed) || 0;
-        existing.speed = speed;
-      } else if (existing.authoritative && !was) {
+      if (existing.battle && existing.authoritative && !was) {
         // handover (the partner left): continue from the field's clock and report from now on
-        existing.speed = speed;
-        existing.t0 = clock() - ((Number(msg.elapsed) || 0) / speed) * 1000;
         existing.lastProgressAt = -Infinity;
         if (existing.battle.finished) { existing.done = false; finished(existing); }
       }
@@ -767,6 +788,7 @@ export function createBattleRunner(deps) {
       phase: typeof msg.phase === 'string' ? msg.phase : null,
       phaseInstance: Number.isSafeInteger(msg.phaseInstance) ? msg.phaseInstance : null,
       phaseOrigin: Number.isFinite(msg.phaseElapsed) ? msg.phaseElapsed - (Number(msg.elapsed) || 0) : null,
+      elapsedAt: receivedAt,
       result: null, delivery: null,
       // local-only combat accounting (battle/metrics.js), attached once the Battle exists; the 作战统计 panel reads
       // it on demand — never sent to the server
@@ -781,6 +803,7 @@ export function createBattleRunner(deps) {
       // view from the field meta); the event batches of the current sliced step (stepEntry)
       held: [], stale: false, slices: [],
     };
+    rebaseEntry(e, e.elapsed, speed, msg.serverNow, receivedAt);
     pending.set(e.battleId, e);
     loading = e;
     publishState();
@@ -828,7 +851,9 @@ export function createBattleRunner(deps) {
       e.battle = battle;
       e.meter = e.host.meter;
       e.combatMetrics = e.host.remote ? () => e.host.packet?.combat || { seconds: 0, owners: [], rows: [] } : trackCombat(battle);
-      e.t0 = clock() - (e.elapsed / e.speed) * 1000;
+      e.elapsed = elapsedNow(e);
+      e.elapsedAt = clock();
+      e.t0 = e.elapsedAt - (e.elapsed / e.speed) * 1000;
       if (lastPool) await e.host.syncPool(lastPool.hp, lastPool.acked ? lastPool.acked[e.fieldId] : undefined);
       if (e.endReason) await endBattle(e);
       // silent catch-up to the field's clock before it is shown (a reconnect / observing a running field) — for the view
