@@ -10,10 +10,12 @@ import { freezeSkins } from '../../shared/skins.js';
 //
 // SAFE PHASES. A checkpoint is taken while the match is in INFO_CHECK, BAND_DRAFT, SP_DRAFT, ROUND_START or PREP.
 // Those are the phases in which no battle object, no pacer and no field is alive (fields/watchers/teamLp/bossPool are
-// empty), so the whole state is serializable. If a match is interrupted in COMBAT / UNITE / SETTLE / FINAL_ASSAULT /
-// HIDDEN_CORE, the *last* safe checkpoint is kept: the match resumes at the start of the round it is in — its
-// operators, items, economy, LP, round number and pool are exactly what they were, and the round's battle is fought
-// again (a fresh battleId, see RESTORE_SEQ_GAP).
+// empty), so the whole state is serializable. The multiplayer variant's UNITE phase is a narrow exception: only its
+// state-only round plan/results are captured, then the current unite field is rebuilt from its start with the full
+// per-round time cap (at most 150 real seconds). Battle/Runner progress is not serialized, so this is not an exact
+// in-field continuation; applying the old remaining deadline to a restarted wave would make that wave unfairly short.
+// If a match is interrupted in COMBAT / legacy UNITE / SETTLE / FINAL_ASSAULT / HIDDEN_CORE, the *last* safe
+// checkpoint is kept.
 //
 // ON RESTORE the clocks restart from the *remaining* time the checkpoint recorded (the match was frozen while the
 // server was down), the prep gets at least MIN_RECOVER_PREP_SEC, and a draft turn that was current starts over with a
@@ -23,12 +25,13 @@ import { freezeSkins } from '../../shared/skins.js';
 
 import { PHASE } from '../../shared/constants.js';
 import { buildNormalWave } from './waves.js';
+import { restoreUnitePlan } from './unite.js';
 
 /** Checkpoint layout version; a document of another version is refused. */
 export const SNAPSHOT_VERSION = 1;
 
 /** Phases whose state is fully serializable (see the header). */
-export const SNAPSHOT_PHASES = Object.freeze([PHASE.INFO_CHECK, PHASE.BAND_DRAFT, PHASE.SP_DRAFT, PHASE.ROUND_START, PHASE.PREP]);
+export const SNAPSHOT_PHASES = Object.freeze([PHASE.INFO_CHECK, PHASE.BAND_DRAFT, PHASE.SP_DRAFT, PHASE.ROUND_START, PHASE.PREP, PHASE.UNITE]);
 
 /** A restored round's battle gets ids far above the interrupted ones (stale reports can never match a new battle). */
 export const RESTORE_SEQ_GAP = 1000;
@@ -50,6 +53,7 @@ export function canSnapshot(m) {
   if (!m.sched || typeof m.sched.now !== 'function') return false;   // a stub Match (tests) has no restorable state
   if (!m.pool || !(m.pool.entries instanceof Map)) return false;
   if (!SNAPSHOT_PHASES.includes(m.phase)) return false;
+  if (m.phase === PHASE.UNITE && (!m.variant || !m.uniteState)) return false;
   if (m.phase === PHASE.PREP) {
     for (const ps of m.alivePlayers()) if (ps.botControlled && !ps.ready) return false;
   }
@@ -184,7 +188,7 @@ const MATCH_FIELDS = Object.freeze([
   'stageId', 'factions', 'bossId', 'hiddenBossId', 'disabledBonds', 'staticInactiveBonds', 'bannedChess',
   'aiPicksLast', 'setupRevision', '_setupVoteSeq',
   'round', 'uidSeq', 'loneHuman', 'hiddenLayerSum', 'hiddenReached', 'errors', 'errorCount', 'simErrors',
-  'cs', 'vs', 'requireCs', 'hostId', 'simErrorLog', 'draft', 'sp', 'wave', 'bossWaves', 'bossPairs',
+  'cs', 'vs', 'requireCs', 'hostId', 'simErrorLog', 'draft', 'sp', 'wave', 'bossWaves', 'bossPairs', 'uniteState',
 ]);
 
 /** PlayerState fields of a checkpoint (bonds/deploy map are recomputed on restore). */
@@ -244,6 +248,13 @@ export function captureMatch(m) {
   doc.itemDebt = Object.fromEntries(m.itemPool?.debt || []);
   doc.poolLeft = {};
   for (const [id, e] of m.pool.entries) doc.poolLeft[id] = e.left;
+  if (m.variant) {
+    doc.operatorPoolLeft = {};
+    for (const [playerId, pool] of m.operatorPools) {
+      doc.operatorPoolLeft[playerId] = {};
+      for (const [id, e] of pool.entries) doc.operatorPoolLeft[playerId][id] = e.left;
+    }
+  }
   // RNG positions: keeps the continuation of a restored match identical to the run it replaces
   doc.rng = {};
   for (const name of RNG_NAMES) {
@@ -430,6 +441,30 @@ export function restoreMatch(m, doc, { createRngFromState, log = console, bestEf
     if (bestEffort) repairPlayer(ps, log);
     ps.recompute();
   }
+  if (m.variant) {
+    for (const [playerId, pool] of m.operatorPools) {
+      const balances = doc.operatorPoolLeft?.[playerId];
+      if (balances && typeof balances === 'object') {
+        for (const [id, left] of Object.entries(balances)) {
+          const e = pool.entries.get(id);
+          const balance = Number(left);
+          if (e) e.left = Math.min(e.cap, Math.trunc(Number.isFinite(balance) ? balance : 0));
+        }
+        continue;
+      }
+      // Legacy variant checkpoints only have an aggregate poolLeft. Recover each owner's own ledger from the saved
+      // pieces instead of cloning that team-wide balance into every player's pool.
+      const ps = m.players.get(playerId);
+      const held = new Map();
+      for (const piece of [...ps.hand, ...ps.temp, ...ps.board.values()]) {
+        if (!piece || piece.kind !== 'chess' || !Number.isInteger(piece.poolCopies)) continue;
+        if (ps.gd.chess(piece.id)?.isDiy) continue;
+        const base = m.gd.baseIdOf(piece.id);
+        held.set(base, (held.get(base) || 0) + piece.poolCopies);
+      }
+      for (const [id, entry] of pool.entries) entry.left = entry.cap - (held.get(id) || 0);
+    }
+  }
   m.order = [...m.players.values()].sort((a, b) => a.seat - b.seat);
   if (bestEffort) {
     repairPhase(m, log);
@@ -536,7 +571,36 @@ function repairPhase(m, log) {
   }
   if (m.phase === PHASE.SP_DRAFT) {
     const s = m.sp;
-    if (!s || !Array.isArray(s.cards) || !Array.isArray(s.order) || !s.picks || !s.taken) {
+    if (s?.mode === 'squad' && Array.isArray(s.squads)) {
+      const valid = m.squads.every((group) => {
+        const draft = s.squads.find((x) => x?.squadId === group.squadId);
+        return draft && Array.isArray(draft.cards) && draft.cards.length > 0 && Array.isArray(draft.order)
+          && draft.picks && typeof draft.picks === 'object' && draft.taken && typeof draft.taken === 'object'
+          && draft.cards.every((c) => c && typeof c.id === 'string');
+      });
+      if (!valid) {
+        warn('unusable squad special draft skipped; saved choices and economy retained');
+        m.sp = null;
+        m.phase = PHASE.PREP;
+      } else {
+        s.squads = m.squads.map((group) => {
+          const draft = s.squads.find((x) => x.squadId === group.squadId);
+          const allowed = new Set(group.playerIds);
+          draft.order = [...new Set(draft.order.filter((id) => ids.has(id) && allowed.has(id)))];
+          draft.idx = Number.isInteger(draft.idx) && draft.idx >= 0 ? Math.min(draft.idx, draft.order.length) : 0;
+          const picks = {};
+          const taken = {};
+          for (const [id, index] of Object.entries(draft.picks)) {
+            if (!draft.order.includes(id) || !Number.isInteger(index) || index < 0 || index >= draft.cards.length || taken[index] != null) continue;
+            picks[id] = index;
+            taken[index] = id;
+          }
+          draft.picks = picks;
+          draft.taken = taken;
+          return draft;
+        });
+      }
+    } else if (!s || !Array.isArray(s.cards) || !Array.isArray(s.order) || !s.picks || !s.taken) {
       warn('unusable special draft skipped; saved choices and economy retained');
       m.sp = null;
       m.phase = PHASE.PREP;
@@ -575,6 +639,18 @@ function enterPhase(m, doc, now) {
       if (!m.sp || typeof m.sp !== 'object') { m.sp = null; m.enterPrep(); break; }
       m.setDeadline(0);
       m.startSpTurn();
+      if (m.sp.mode === 'squad') for (const ps of m.alivePlayers()) m.markPrivate(ps);
+      break;
+    }
+    case PHASE.UNITE: {
+      const plan = m.variant ? restoreUnitePlan(m, m.uniteState) : null;
+      if (!plan) throw new Error('invalid saved unite state');
+      if (plan.pendingResult) {
+        m.phase = PHASE.UNITE;
+        m.unitePlan = plan;
+        m.fields = [];
+        m._completeUniteRound(plan);
+      } else m.startUnite(plan);
       break;
     }
     case PHASE.ROUND_START: {
@@ -613,8 +689,14 @@ export function matchState(m) {
   for (const k of MATCH_FIELDS) match[k] = encodeState(m[k]);
   // the draft turn clocks are absolute times of the *old* run: the restored match re-arms them from its own clock
   for (const k of ['draft', 'sp']) if (match[k] && typeof match[k] === 'object') delete match[k].turnDeadline;
+  if (match.sp?.mode === 'squad') for (const squad of match.sp.squads || []) delete squad.turnDeadline;
   const pool = {};
   for (const [id, e] of m.pool.entries) pool[id] = e.left;
+  const operatorPools = {};
+  for (const [playerId, stock] of m.operatorPools || []) {
+    operatorPools[playerId] = {};
+    for (const [id, e] of stock.entries) operatorPools[playerId][id] = e.left;
+  }
   const rng = {};
   for (const n of RNG_NAMES) rng[n] = m[n] && typeof m[n].state === 'function' ? m[n].state() : null;
   const players = {};
@@ -623,7 +705,7 @@ export function matchState(m) {
     for (const k of PLAYER_FIELDS) p[k] = encodeState(ps[k]);
     players[ps.playerId] = p;
   }
-  return { match, pool, rng, players };
+  return { match, pool, operatorPools, rng, players };
 }
 
 /** JSON digest of matchState (tests / tools). */

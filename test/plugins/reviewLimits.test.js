@@ -44,6 +44,17 @@ test('one branch count on an empty field spawns at most MAX_ALIVE_ENEMIES', () =
   assert.ok(Date.now() - t0 < 2000, `spawn took ${Date.now() - t0}ms`);
 });
 
+test('shared boss branch uses the field cap while a single field stays at 600', () => {
+  const tpl = { branches: { bomb: [[{ key: 'enemy_w', count: 1e6, routeIndex: 0 }]] }, extraRoutes: [] };
+  const h = makeBattle({
+    players: [{ playerId: 'p0', units: [] }, { playerId: 'p1', units: [] }],
+    defs: { enemies: { enemy_w: walker() } }, content: 'none', timeLimit: 5, recordEvents: false,
+  });
+  h.step();
+  assert.equal(branchSpawn(h.b, tpl, 'bomb', 0).length, MAX_ALIVE_ENEMIES * 2);
+  assert.equal(h.b.aliveEnemies().length, MAX_ALIVE_ENEMIES * 2);
+});
+
 test('catapult extra hits stop at PLUGIN_TIMES_MAX', () => {
   const src = getData().enemies.enemy_10162_mnctpt;
   const enemy = structuredClone(src);

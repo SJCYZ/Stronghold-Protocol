@@ -1127,8 +1127,13 @@ describe('screen helpers', () => {
       ],
     };
     assert.equal(normalizeSeats(room).length, 4);
+    assert.equal(normalizeSeats({ ...room, capacity: 5, seats: [room.seats[0]] }).length, 5);
+    assert.equal(normalizeSeats({ ...room, capacity: 20, seats: [room.seats[0]] }).length, 20);
+    assert.equal(normalizeSeats({ mode: 'coop', seats: [] }).length, 4, 'legacy room.state without capacity defaults to four');
     assert.equal(normalizeSeats({ mode: 'solo', seats: [room.seats[0], null, null, null] }).length, 1);
     assert.deepEqual(normalizeSeats({ mode: 'coop', seats: 'bad' }), [null, null, null, null]);
+    const lobbySource = readFileSync(path.join(PUBLIC, 'js/screens/lobby.js'), 'utf8');
+    assert.match(lobbySource, /mode: roomMode, difficulty, \.\.\.\(roomMode === 'coop' \? \{ capacity \} : \{\}\)/);
     let f = roomFacts(room, 'h');
     assert.equal(f.isHost, true);
     assert.equal(f.canStart, false, 'guest not ready');

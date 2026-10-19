@@ -276,4 +276,18 @@ test('a single human (a 同盟 room started alone or with AI teammates only) is 
   h.toPrep(1);
   assert.ok(h.m.deadline > 0, 'co-op prep is timed');
   h.m.dispose();
+
+  // A disconnected single human can opt into AI control. The match remains a co-op match,
+  // and its existing soloUntimed rule still applies while the AI advances the seat.
+  const offline = makeMatch({ mode: 'coop', difficulty: 'NORMAL', humans: 1, bots: 3, seed: 13, fake: true, instant: false }).start();
+  const om = offline.m;
+  assert.equal(om.soloUntimed, true);
+  assert.deepEqual(om.handle('p_0', { t: 'g.autoplay', on: true }), { ok: true });
+  om.onDisconnect('p_0');
+  assert.equal(om.publicView().players.find((p) => p.playerId === 'p_0').connected, false);
+  assert.equal(om.publicView().players.find((p) => p.playerId === 'p_0').autoplay, true);
+  assert.equal(om.soloUntimed, true, 'disconnect and AI takeover retain the original untimed rule');
+  assert.ok(offline.drive(() => om.phase === PHASE.PREP && om.round === 2), 'AI control advances through untimed phases');
+  assert.equal(om.deadline, 0, 'no duplicate countdown is introduced after takeover');
+  om.dispose();
 });

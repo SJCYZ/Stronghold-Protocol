@@ -1,4 +1,4 @@
-// Room screen (同盟等待室): 4 seat cards (avatar frame, name, ready state, AI badge, host crown),
+// Room screen (同盟等待室): capacity-sized seat cards (avatar frame, name, ready state, AI badge, host crown),
 // host controls (difficulty picker, add/remove AI in co-op, optional teammate matchmaking), invite code with copy
 // code / copy link, ready toggle and leave.
 //
@@ -17,7 +17,7 @@
 // Texts go through t() (docs/I18N.md).
 
 import { useEffect, useMemo, useRef, useState } from '../../vendor/hooks.module.js';
-import { DIFFICULTIES, DIFFICULTY_NAMES, DIFFICULTY_COLORS, MAX_SEATS, MAX_SPECTATORS } from '../../../shared/constants.js';
+import { DIFFICULTIES, DIFFICULTY_NAMES, DIFFICULTY_COLORS, MAX_SPECTATORS } from '../../../shared/constants.js';
 import {
   html, Button, Icon, MicroLabel, PingPill, OnlineCount, AvatarFrame, DifficultyTag, DifficultyIcon, Tooltip, Modal, confirmDialog, doctorNo,
 } from '../ui/components.js';
@@ -56,7 +56,8 @@ export function RoomTools({ coop }) {
  * @returns {(null | {seat:number, playerId:any, name:string, isBot:boolean, ready:boolean, connected:boolean})[]}
  */
 export function normalizeSeats(room) {
-  const cap = room?.mode === 'solo' ? 1 : MAX_SEATS;
+  const rawCapacity = Number(room?.capacity);
+  const cap = room?.mode === 'solo' ? 1 : Number.isInteger(rawCapacity) && rawCapacity >= 4 && rawCapacity <= 20 ? rawCapacity : 4;
   const src = Array.isArray(room?.seats) ? room.seats : [];
   const out = [];
   for (let i = 0; i < cap; i++) {
@@ -88,6 +89,7 @@ export function roomFacts(room, myId) {
   const contentReady = !modded || humans.every((s) => s.content === 'ready');
   return {
     seats, occupied, humans, mine, isHost, readyHumans, isReady,
+    canSetCapacity: isHost && room?.mode !== 'solo' && !room?.inMatch && !room?.matching,
     emptySeats: seats.filter((s) => !s).length,
     canStart: isHost && othersReady && !!mine && contentReady && (!room?.content?.trusted || humans.every(s => room.content.trusted.consent[s.seat])),
     othersReady,
@@ -343,6 +345,7 @@ export function RoomScreen() {
     if (ok) run(`kick${seat}`, () => net.request('room.kick', { seat, playerId }));
   };
   const setDifficulty = (difficulty) => run('diff', () => net.request('room.setDifficulty', { difficulty }));
+  const setCapacity = (capacity) => run('capacity', () => net.request('room.setCapacity', { capacity }));
   const openConsole = () => {
     if (room.consoleEnabled || room.matching || !canManageConsole) return;
     setConsoleReadyAt(Date.now() + 5000);
@@ -445,6 +448,11 @@ export function RoomScreen() {
       <div class="room-bar__left">
         <span class="room-bar__label">${t('模拟难度')}<${MicroLabel}>DIFFICULTY<//></span>
         <${DifficultyPicker} room=${room} isHost=${facts.isHost} busy=${busy} onPick=${setDifficulty} />
+        ${coop ? html`<label class="room-capacity">${t('同盟人数')}
+          <select aria-label=${t('同盟人数')} value=${room.capacity || 4} disabled=${!facts.canSetCapacity || !!busy} onChange=${(e) => setCapacity(Number(e.currentTarget.value))}>
+            ${Array.from({ length: 17 }, (_, i) => i + 4).map((n) => html`<option key=${n} value=${n}>${n} ${t('席')}</option>`)}
+          </select>
+        </label>` : null}
         ${canManageConsole ? html`<${Button} variant=${room.consoleEnabled ? 'danger' : 'secondary'} size="lg" icon="terminal"
           class="room-console-btn" disabled=${(!room.consoleEnabled && !!room.matching) || !online} onClick=${room.consoleEnabled ? disableConsole : openConsole}
           title=${room.consoleEnabled ? t('关闭控制台') : t('启用控制台')}>${room.consoleEnabled ? t('关闭控制台') : t('启用控制台')}<//>`

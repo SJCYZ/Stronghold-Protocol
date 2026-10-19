@@ -318,7 +318,7 @@ function ProtocolPage(props) {
 }
 
 /** Full secondary page with the fork's visual treatment and this branch's protocol. */
-export function ProtocolSelect({ card, roomMode, difficulty, onDifficulty, online, busy, onClose, onStart, queue, onCancel, pageRef }) {
+export function ProtocolSelect({ card, roomMode, difficulty, onDifficulty, capacity = 4, onCapacity, online, busy, onClose, onStart, queue, onCancel, pageRef }) {
   const info = difficultyInfo(roomMode, difficulty);
   return html`<main ref=${pageRef} class="screen protocol-screen" aria-label=${`${t(card.name)} · ${t('选择模拟协议')}`}>
     <div class="proto" style=${`--d-color:${DIFFICULTY_COLORS[difficulty]}`}>
@@ -339,6 +339,11 @@ export function ProtocolSelect({ card, roomMode, difficulty, onDifficulty, onlin
           </div>
           <div class="proto-foot">
             ${queue ? html`<${MatchQueuePanel} queue=${queue} onCancel=${onCancel} />` : html`
+              ${roomMode === 'coop' ? html`<label class="proto-capacity">${t('同盟人数')}
+                <select aria-label=${t('同盟人数')} value=${capacity} disabled=${!online || !!busy} onChange=${(e) => onCapacity?.(Number(e.currentTarget.value))}>
+                  ${Array.from({ length: 17 }, (_, i) => i + 4).map((n) => html`<option key=${n} value=${n}>${n} ${t('席')}</option>`)}
+                </select>
+              </label>` : null}
               <p class="proto-hint">${!online ? t('正在连接服务器…') : roomMode === 'match' ? t('仅匹配真人 · 满四人后开始') : roomMode === 'solo' ? t('创建后即可开始模拟') : t('创建后可邀请好友或匹配队友')}</p>
               <button type="button" class="proto-start" disabled=${!online || !!busy} onClick=${onStart}>
                 <span class="proto-start__mark" aria-hidden="true"><span class="proto-start__rook"><i>[</i><${Icon} name="rook" /><i>]</i></span><small>STRONGHOLD<br />PROTOCOL</small></span>
@@ -396,6 +401,7 @@ export function LobbyScreen() {
     return () => { current = false; };
   }, [panel, sweepModule]);
   const [code, setCode] = useState('');
+  const [capacity, setCapacity] = useState(4);
   const [busy, setBusy] = useState(null);
   const [recent] = useState(recentRooms);
   const alive = useRef(true);
@@ -418,7 +424,7 @@ export function LobbyScreen() {
       if (alive.current) setBusy(null);
     }
   };
-  const create = () => run('create', () => net.request('room.create', { mode: roomMode, difficulty }));
+  const create = () => run('create', () => net.request('room.create', { mode: roomMode, difficulty, ...(roomMode === 'coop' ? { capacity } : {}) }));
   const matchmaking = () => run('match', () => net.request('match.join', { mode: 'coop', difficulty }));
   const cancelMatchmaking = () => run('cancel-match', () => net.request('match.leave', {}));
   const join = (c = code) => {
@@ -457,7 +463,7 @@ export function LobbyScreen() {
   // Replace the lobby instead of covering an interactive lobby with a dialog/backdrop.
   if (panel === 'sweep') return sweepModule ? html`<${sweepModule.SweepReport} onClose=${() => setPanel(null)} />`
     : html`<${SweepLoadingPage} onClose=${() => setPanel(null)} />`;
-  if (panel === 'protocol') return html`<${ProtocolPage} card=${card} roomMode=${roomMode} difficulty=${difficulty} onDifficulty=${pickDifficulty}
+  if (panel === 'protocol') return html`<${ProtocolPage} card=${card} roomMode=${roomMode} difficulty=${difficulty} onDifficulty=${pickDifficulty} capacity=${capacity} onCapacity=${setCapacity}
     online=${online} busy=${busy} onClose=${() => setPanel(null)} onStart=${roomMode === 'match' ? matchmaking : create}
     queue=${matchQueue} onCancel=${cancelMatchmaking} />`;
   return html`<div ref=${lobbyRef} class="screen lobby-screen lobby-hub" data-hub-theme=${backdropTheme(bg)}>

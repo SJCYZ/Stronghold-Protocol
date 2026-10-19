@@ -8,7 +8,7 @@ import { snapshotMatch, matchState as persistentState } from '../server/match/sn
 import { Persister, snapshotServer, restoreServer } from '../server/persist.js';
 import { DATA, give } from './match/harness.js';
 import { FakeBattle } from './match/fakeBattle.js';
-import { PHASE } from '../shared/constants.js';
+import { PHASE, PROTOCOL_VERSION } from '../shared/constants.js';
 import { startServer } from '../server/index.js';
 import { TestClient } from './helpers/wsClient.js';
 
@@ -528,7 +528,7 @@ test('startup Redis read failure protects stored state and old tokens until retr
   assert.equal(await srv.persister.flush('unavailable'), false);
   assert.equal(store.writes, 0);
   const pending = await TestClient.connect(`ws://127.0.0.1:${srv.port}/ws`);
-  pending.send({ t: 'hello', name: 'A', version: 1, token: env.a.token });
+  pending.send({ t: 'hello', name: 'A', version: PROTOCOL_VERSION, token: env.a.token });
   assert.equal((await pending.closed).code, 1013);
   assert.equal(pending.log.some((m) => m.t === 'welcome'), false);
   store.available = true;

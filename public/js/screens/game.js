@@ -290,8 +290,9 @@ function MatchScreen() {
   const editable = phase === PHASE.PREP && !!priv && alive && !priv.ready && !watchingOther && !hasPersonalChoice;
   const showShop = !!priv && alive && (phase === PHASE.PREP || phase === PHASE.SP_DRAFT || phase === PHASE.ROUND_START) && !watchingOther;
   const layersDisabled = phase === PHASE.UNITE || isBossPhase(phase);
-  const sp = phase === PHASE.SP_DRAFT ? normalizeSp(pub?.sp, players) : null;
-  const total = phaseTotalSeconds(pub, gd.config, myId);
+  const privateSp = priv?.sp?.mode === 'squad' && priv.sp.squadId === meP?.squadId ? priv.sp : null;
+  const sp = phase === PHASE.SP_DRAFT ? normalizeSp(pub?.sp, players, privateSp) : null;
+  const total = phaseTotalSeconds(pub, gd.config, myId, privateSp);
   // solo pause: offered in the own battle; while m.public.paused every HUD clock stops at the pause moment
   const paused = isPaused(pub);
   const pauseSeenRef = useRef(null);

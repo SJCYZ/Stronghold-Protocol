@@ -21,7 +21,7 @@ test('one release version: package.json, package-lock.json and APP_VERSION', () 
   assert.equal(pkg.version, APP_VERSION);
   assert.equal(lock.version, APP_VERSION);
   assert.equal(lock.packages[''].version, APP_VERSION);
-  assert.equal(PROTOCOL_VERSION, 1, 'the wire protocol number is separate from the release version');
+  assert.equal(PROTOCOL_VERSION, 3, 'the wire protocol number is separate from the release version');
   assert.equal(pkg.private, true, 'never published to npm');
 });
 

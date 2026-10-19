@@ -193,6 +193,10 @@ export function spMarks(sp, { solo }) {
  * @param {{ pub:any, sp:any, myId:string, solo:boolean, personal?:boolean, busyIdx?:number|null, total?:number|null, armed?:number|null,
  *   onTap?:(idx:number)=>void, onConfirm?:()=>void, onDisarm?:()=>void }} props
  */
+export function spDeadline(sp, pub) {
+  return sp?.mode === 'squad' ? sp.turnDeadline : pub?.deadline;
+}
+
 export function ChoiceView({ pub, sp, myId, solo, personal = false, busyIdx = null, total = null, armed = null, onTap = () => {}, onConfirm = () => {}, onDisarm = () => {} }) {
   if (!sp) return null;
   const fam = data.get('choices')?.families?.[sp.family] || null;
@@ -203,6 +207,8 @@ export function ChoiceView({ pub, sp, myId, solo, personal = false, busyIdx = nu
   const turnName = players.get(sp.turnPid)?.name || t('队友');
   const special = /_s$/.test(String(sp.family || ''));
   const timed = personal ? pub?.deadline > 0 : !solo && !sp.untimed;
+  const squadProgress = sp.mode === 'squad' && sp.progress
+    ? `${sp.progress.picked}/${sp.progress.total}` : null;
   const armedCardRec = armed != null ? sp.cards.find((c) => c && c.idx === armed) : null;
   const armedName = armedCardRec ? resolveSpCard(armedCardRec, sp.family).name : null;
   // a press anywhere but a card or the confirm button drops the selection
@@ -222,7 +228,7 @@ export function ChoiceView({ pub, sp, myId, solo, personal = false, busyIdx = nu
         <div class="spov__titles">
           <i class="spov__deco" aria-hidden="true"></i>
           <h2 class=${cx('spov__title', special && 'is-special')}><span class="spov__name">${sentText(sp.name, rawFam?.name, fam?.name) || fam?.name || t('机变')}</span><span class="spov__bar">|</span><span class="spov__desc"><${RichText} text=${sentText(sp.desc, rawFam?.desc, fam?.desc) || fam?.desc || t('选择一项')} /></span></h2>
-          <p class="spov__sub">${timed ? (personal ? t('休整期结束时未选择将自动选定') : t('倒计时结束后仍未选定将自动分配')) : t('选择一项（无时间限制）')}${mine == null && myTurn ? t(' · 点击卡牌选中，再次点击确认') : ''}</p>
+          <p class="spov__sub">${timed ? (personal ? t('休整期结束时未选择将自动选定') : t('倒计时结束后仍未选定将自动分配')) : t('选择一项（无时间限制）')}${mine == null && myTurn ? t(' · 点击卡牌选中，再次点击确认') : ''}${squadProgress ? html` <span class="spov__progress" data-testid="sp-squad-progress" title=${t('已完成选择')}>${squadProgress}</span>` : null}</p>
         </div>
         <div class="spov__turn">
           ${personal ? html`<span class="spov__turntxt is-mine">${t('从候选中选择一项战术特训')}</span>`
@@ -231,7 +237,7 @@ export function ChoiceView({ pub, sp, myId, solo, personal = false, busyIdx = nu
             : html`<span class="spov__turntxt is-other"><span class="spov__tw"><b>${turnName}</b><small>${t('正在决策…')}</small></span><${Icon} name="hourglass" /></span>`}
           ${armed != null ? html`<${Button} variant="primary" size="lg" icon="check" class="spov__confirm" data-testid="sp-confirm"
               title=${armedName ? t('确认选择「{armedName}」（再次点击卡牌亦可）', { armedName }) : t('确认选择')} onClick=${onConfirm}>${t('确认选择')}<//>` : null}
-          ${timed ? html`<${Countdown} deadline=${pub?.deadline} total=${total ?? undefined} size="md" />` : null}
+          ${timed ? html`<${Countdown} deadline=${spDeadline(sp, pub)} total=${total ?? undefined} size="md" />` : null}
         </div>
       </header>
       <div class=${cx('spov__grid', sp.cards.length <= 3 && 'spov__grid--3')}>

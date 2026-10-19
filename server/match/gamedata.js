@@ -78,7 +78,7 @@ export function bossPoolShareOf(modeScale, cfgScale, isSolo, aliveCount) {
   const full = Math.max(1, Math.floor(pick('aliveFull', 4)));
   const n = Number(aliveCount);
   const scaling = typeof ms.aliveScaling === 'boolean' ? ms.aliveScaling : cs.aliveScaling === true;
-  const alive = scaling && Number.isFinite(n) && n >= 1 ? Math.min(full, Math.floor(n)) : full;
+  const alive = scaling && Number.isFinite(n) && n >= 1 ? Math.min(20, Math.floor(n)) : full;
   return pick('coop', 4) * alive / full;
 }
 

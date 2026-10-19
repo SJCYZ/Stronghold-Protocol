@@ -1,8 +1,10 @@
 // server/match/unite.js — 联防 (Unite) planning and LP attribution (DESIGN §6.1, research 06 §5, research 08 §5).
 //
 // Trigger (co-op only): after the normal combats, ≥ 1 alive player leaked (a counted leak ⇒ not perfect) and
-// ≥ 1 alive player was perfect. Helpers (PRTS 卫戍协议/帮助 §联防阶段): up to config.unite.maxHelpers (2) perfect
-// players chosen by most units on the field (downed included) > has an active bond (存疑) > most undowned units, then
+// ≥ 1 alive player was perfect. In ≤4-player rooms helpers keep the ranked selection below; the multiplayer variant
+// randomly selects up to two from every perfect player in the room for each of its two possible rounds. Helpers
+// (PRTS 卫戍协议/帮助 §联防阶段): up to config.unite.maxHelpers (2) perfect players chosen by
+// most units on the field (downed included) > has an active bond (存疑) > most undowned units, then
 // seat; with 2 helpers the one ranked first by most units > active bond > Σ active bond layers (存疑) > most undowned
 // units "率先迎敌" on the RIGHT-hand field (colOffset +8, where the escaped_multi routes enter), the other keeps the
 // left half (colOffset 0); a lone helper plays escaped_single on its own field. The escape templates supply the enemy
@@ -52,7 +54,9 @@ export function planUnite(m, results) {
     else if (r.perfect !== false) perfects.push(ps);
   }
   if (!leakers.length || !perfects.length) return null;
-  const helpers = helperOrder(m, perfects, results);
+  const variant = !!m.variant;
+  const candidateIds = variant ? perfects.map((p) => p.playerId) : null;
+  const helpers = variant ? drawUniteHelpers(m, perfects) : helperOrder(m, perfects, results);
   const leaked = [];
   const notReentered = new Map();
   for (const ps of leakers) {
@@ -72,10 +76,57 @@ export function planUnite(m, results) {
         ? { coins: Math.trunc(card.coin), ownerPlayerId: ps.playerId } : null;
       const extra = !bountyId && l.mods ? Math.trunc(Number(l.mods.bountyCoins) || 0) : 0;
       if (!bounty && extra > 0) bounty = { coins: extra, ownerPlayerId: ps.playerId };
-      leaked.push({ enemyKey: l.enemyKey, mods: l.mods ? { ...l.mods } : null, lpr: l.lpr ?? 1, sourcePlayerId: ps.playerId, tag: l.tag ?? null, bounty });
+      leaked.push({ ...l, mods: l.mods ? { ...l.mods } : null, lpr: l.lpr ?? 1, sourcePlayerId: ps.playerId, tag: l.tag ?? null, bounty });
     }
   }
-  return { helpers, leakers, leaked, notReentered };
+  return {
+    helpers, leakers, leaked, notReentered,
+    ...(variant ? { variant: true, candidateIds, round: 1, roundResults: [] } : {}),
+  };
+}
+
+/** Draw up to two helpers without replacement from the round's full perfect-pass set. */
+export function drawUniteHelpers(m, candidates) {
+  const limit = Number.isInteger(m.gd.unite.maxHelpers) ? Math.min(2, m.gd.unite.maxHelpers) : 2;
+  return m.rngMeta.shuffle(candidates.slice()).slice(0, limit);
+}
+
+/** JSON-safe state retained across an in-flight multi-round unite checkpoint. */
+export function serializeUnitePlan(plan) {
+  if (!plan?.variant) return null;
+  return {
+    round: plan.round,
+    candidateIds: plan.candidateIds.slice(),
+    helperIds: plan.helpers.map((p) => p.playerId),
+    leakerIds: plan.leakers.map((p) => p.playerId),
+    leaked: plan.leaked,
+    notReentered: Object.fromEntries(plan.notReentered),
+    roundResults: plan.roundResults,
+    pendingResult: plan.pendingResult || null,
+  };
+}
+
+function keepUniteWaveSources(plan, wave) {
+  plan.waveSpawns = wave.spawns;
+  plan.waveLeakSources = wave.leakSources;
+}
+
+/** Rebuild player references from the state-only checkpoint; does not consume RNG. */
+export function restoreUnitePlan(m, state) {
+  if (!state || !Array.isArray(state.candidateIds) || !Array.isArray(state.helperIds)
+    || !Array.isArray(state.leakerIds) || !Array.isArray(state.leaked) || ![1, 2].includes(state.round)) return null;
+  const getPlayers = (ids) => ids.map((id) => m.players.get(id)).filter(Boolean);
+  const helpers = getPlayers(state.helperIds);
+  const leakers = getPlayers(state.leakerIds);
+  if (helpers.length !== state.helperIds.length || leakers.length !== state.leakerIds.length) return null;
+  const plan = {
+    variant: true, round: state.round, candidateIds: state.candidateIds.filter((id) => m.players.has(id)),
+    helpers, leakers, leaked: state.leaked, notReentered: new Map(Object.entries(state.notReentered || {})),
+    roundResults: Array.isArray(state.roundResults) ? state.roundResults : [], pendingResult: state.pendingResult || null,
+  };
+  const timeLimit = Math.min(150, m.gd.combatTimeLimitReal(m.round)) * m.gd.combatTimeScale;
+  keepUniteWaveSources(plan, buildUniteWave(m.gd, plan.leaked, plan.helpers.length, timeLimit));
+  return plan;
 }
 
 /**
@@ -139,9 +190,11 @@ export function uniteStageId(gd, helperCount, roundStageId = null) {
 /** Battle options for the unite field (without data/logger, added by the match). */
 export function uniteBattleOpts(m, plan, timeLimit) {
   const wave = buildUniteWave(m.gd, plan.leaked, plan.helpers.length, timeLimit);
+  keepUniteWaveSources(plan, wave);
   const players = plan.helpers.map((ps, i) => {
     const carry = new Map();
-    const r = m.lastResults.get(ps.playerId);
+    const r = plan.round === 2 && plan.roundResults?.[0]?.perPlayer?.[ps.playerId]
+      || m.lastResults.get(ps.playerId);
     const summonUids = new Set();
     for (const p of ps.board.values()) if (p && p.kind === 'token') summonUids.add(p.uid);
     for (const u of (r && r.unitsEnd) || []) {

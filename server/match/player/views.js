@@ -73,6 +73,7 @@ export class PlayerViews {
       bandId: this.bandId,
       ready: this.ready,
       canReady: this.alive && this.tempEmpty && !this.personalChoice && this.m.phase === PHASE.PREP,
+      ...(this.m.variant && this.m.phase === PHASE.SP_DRAFT ? { sp: this.m.privateSpViewFor(this) } : {}),
       personalChoice: this.personalChoice ? {
         id: this.personalChoice.id,
         round: this.personalChoice.round,

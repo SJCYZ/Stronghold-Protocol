@@ -35,8 +35,8 @@ const quietLog = () => {
 const ok = async (c, msg) => { const r = await c.request(msg); assert.equal(r.t, 'ok', `${msg.t}: ${JSON.stringify(r)}`); return r; };
 const err = async (c, msg, code) => { const r = await c.request(msg); assert.equal(r.t, 'error', JSON.stringify(r)); assert.equal(r.code, code, JSON.stringify(r)); return r; };
 const seatOf = (state, id) => state.seats.find((s) => s && s.playerId === id) || null;
-async function createRoom(c) {
-  await ok(c, { t: 'room.create', mode: 'coop', difficulty: 'NORMAL' });
+async function createRoom(c, capacity) {
+  await ok(c, { t: 'room.create', mode: 'coop', difficulty: 'NORMAL', ...(capacity == null ? {} : { capacity }) });
   return c.waitFor('room.state', (s) => s.hostId === c.id);
 }
 async function joinRoom(c, code) {
@@ -61,7 +61,8 @@ describe('room.kick (lobby)', () => {
   test('protocol: room.kick {seat, playerId} — a seat index and the confirmed player', () => {
     assert.equal(validateC2S({ t: 'room.kick', seat: 1, playerId: 'p_0123456789' }), null);
     assert.notEqual(validateC2S({ t: 'room.kick', seat: 1 }), null, 'the player is required');
-    assert.notEqual(validateC2S({ t: 'room.kick', seat: 9, playerId: 'p_0123456789' }), null);
+    assert.equal(validateC2S({ t: 'room.kick', seat: 19, playerId: 'p_0123456789' }), null);
+    assert.notEqual(validateC2S({ t: 'room.kick', seat: 20, playerId: 'p_0123456789' }), null);
     assert.notEqual(validateC2S({ t: 'room.kick', seat: 1, playerId: '' }), null);
     assert.notEqual(validateC2S({ t: 'room.kick' }), null);
   });
@@ -85,6 +86,22 @@ describe('room.kick (lobby)', () => {
     const back = await joinRoom(guest, st.code);
     assert.equal(seatOf(back, guest.id).seat, 1);
     assert.equal(seatOf(back, guest.id).ready, false);
+  });
+
+  test('the host can kick a human from seat 19 in a twenty-seat room', async () => {
+    const host = await pool.player('Host 20');
+    const st = await createRoom(host, 20);
+    const guests = [];
+    for (let i = 1; i < 20; i++) {
+      const guest = await pool.player(`Guest ${i}`);
+      guests.push(guest);
+      await joinRoom(guest, st.code);
+    }
+    const target = guests[18];
+    assert.equal((await host.waitFor('room.state', (s) => s.seats[19]?.playerId === target.id)).seats[19].seat, 19);
+    await ok(host, { t: 'room.kick', seat: 19, playerId: target.id });
+    assert.equal((await target.waitFor('room.closed')).reason, 'kicked');
+    assert.equal((await host.waitFor('room.state', (s) => s.seats[19] === null)).seats.length, 20);
   });
 
   test('an offline human is removed at once; the old token resumes outside the room with room.closed {kicked}', async () => {

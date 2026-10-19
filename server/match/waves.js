@@ -649,6 +649,7 @@ export function buildUniteWave(gd, leaked, helperCount, timeLimit) { // eslint-d
     owners.get(owner).push(l);
   }
   const spawns = [];
+  const leakSources = [];
   for (const [idx, owners] of groups) {
     const a = idx >= 0 ? list[idx] : null;
     const t0 = a ? Math.max(0, Number(a.time) || 0) : 3;
@@ -671,10 +672,11 @@ export function buildUniteWave(gd, leaked, helperCount, timeLimit) { // eslint-d
         if (l.bounty && l.bounty.coins > 0) spec.bounty = { coins: l.bounty.coins, ownerPlayerId: l.bounty.ownerPlayerId ?? l.sourcePlayerId };
         if (l.tag === 'bounty') spec.tag = 'bounty';
         spawns.push(spec);
+        leakSources.push(l);
       });
       k++;
     }
   }
-  spawns.sort((a, b) => a.time - b.time);
-  return { templateId, spawns, routes };
+  const order = spawns.map((spawn, index) => ({ spawn, leak: leakSources[index] })).sort((a, b) => a.spawn.time - b.spawn.time);
+  return { templateId, spawns: order.map((entry) => entry.spawn), leakSources: order.map((entry) => entry.leak), routes };
 }

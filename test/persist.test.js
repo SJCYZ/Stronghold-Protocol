@@ -82,6 +82,7 @@ test('a room and its sessions survive a document round trip', () => {
   assert.equal(doc.sessions.length, 2);
   assert.equal(doc.rooms.length, 1);
   assert.equal(doc.rooms[0].code, code);
+  assert.equal(doc.rooms[0].capacity, 4);
   assert.equal(doc.rooms[0].difficulty, 'HARD');
   assert.equal(doc.rooms[0].seats.length, 2);
   assert.equal(doc.rooms[0].seats.find((s) => s.playerId === b.playerId).ready, true);
@@ -98,11 +99,54 @@ test('a room and its sessions survive a document round trip', () => {
   const room = lobby2.getRoom(code);
   assert.ok(room, 'the room is back');
   assert.equal(room.difficulty, 'HARD');
+  assert.equal(room.capacity, 4);
   assert.equal(room.hostId, a.playerId);
   assert.equal(room.seatOf(b.playerId).ready, true);
   assert.equal(room.seatOf(b.playerId).connected, false, 'everyone starts disconnected');
   // both humans are on a fresh lobby grace timer
   assert.equal(lobby2.graceTimers.size, 2);
+});
+
+test('a twenty-seat room preserves its capacity and seat 19 identity across persistence', () => {
+  const registry = new SessionRegistry();
+  const lobby = new Lobby({ registry, log: quietLog, MatchClass: StubMatch, getData: () => ({}) });
+  const host = registry.create('Alice');
+  assert.deepEqual(lobby.create(host, { mode: 'coop', difficulty: 'NORMAL', capacity: 20 }), { ok: true });
+  const room = lobby.getRoom(host.roomCode);
+  room.seats[19] = { ...room.seats[0], seat: 19 };
+  room.seats[0] = null;
+
+  const now = Date.now();
+  const doc = snapshotServer({ registry, lobby, now });
+  assert.equal(doc.rooms[0].capacity, 20);
+  assert.equal(doc.rooms[0].seats[0].seat, 19);
+
+  const registry2 = new SessionRegistry();
+  const lobby2 = new Lobby({ registry: registry2, log: quietLog, MatchClass: StubMatch, getData: () => ({}) });
+  const stats = restoreServer({ doc, registry: registry2, lobby: lobby2, now: now + 1000, log: quietLog });
+  const restored = lobby2.getRoom(room.code);
+  assert.equal(stats.rooms, 1);
+  assert.equal(restored.capacity, 20);
+  assert.equal(restored.seats.length, 20);
+  assert.equal(restored.seats[19].playerId, host.playerId);
+  assert.equal(restored.seats.slice(0, 19).filter(Boolean).length, 0);
+});
+
+test('legacy room records without capacity restore with four seats', () => {
+  const registry = new SessionRegistry();
+  const lobby = new Lobby({ registry, log: quietLog, MatchClass: StubMatch, getData: () => ({}) });
+  const host = registry.create('Alice');
+  assert.deepEqual(lobby.create(host, { mode: 'coop', difficulty: 'NORMAL' }), { ok: true });
+  const doc = snapshotServer({ registry, lobby });
+  delete doc.rooms[0].capacity;
+
+  const registry2 = new SessionRegistry();
+  const lobby2 = new Lobby({ registry: registry2, log: quietLog, MatchClass: StubMatch, getData: () => ({}) });
+  const stats = restoreServer({ doc, registry: registry2, lobby: lobby2, log: quietLog });
+  const restored = lobby2.getRoom(host.roomCode);
+  assert.equal(stats.rooms, 1);
+  assert.equal(restored.capacity, 4);
+  assert.equal(restored.seats.length, 4);
 });
 
 test('sessions older than their reconnect window are dropped, with their seats', () => {

@@ -19,7 +19,7 @@ import { sanitizeName, TokenBucket, SessionRegistry, clientAddress, normalizeIp,
 import { StubMatch as Match } from '../server/match/StubMatch.js';
 import { Match as RealMatch, parseBotRehearsal, parseCombat } from '../server/match/Match.js';
 import { TestClient } from './helpers/wsClient.js';
-import { ERR, MAX_SEATS, MAX_SPECTATORS, PHASE, EMOTES } from '../shared/constants.js';
+import { ERR, MAX_SEATS, MAX_SPECTATORS, PHASE, EMOTES, PROTOCOL_VERSION } from '../shared/constants.js';
 
 const CODE_RE = new RegExp(`^[${CODE_ALPHABET}]{4}$`);
 const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
@@ -67,8 +67,8 @@ function clientPool(getUrl) {
   };
 }
 
-async function createRoom(c, mode = 'coop', difficulty = 'NORMAL') {
-  const r = await c.request({ t: 'room.create', mode, difficulty });
+async function createRoom(c, mode = 'coop', difficulty = 'NORMAL', capacity) {
+  const r = await c.request({ t: 'room.create', mode, difficulty, ...(capacity == null ? {} : { capacity }) });
   assert.equal(r.t, 'ok', JSON.stringify(r));
   return c.waitFor('room.state', (s) => s.hostId === c.id && s.mode === mode);
 }
@@ -564,6 +564,9 @@ describe('websocket lobby', () => {
 
     await expectError(c, { t: 'hello', name: '   ' }, ERR.BAD_MSG);
     await expectError(c, { t: 'hello', name: 'x', version: 999 }, ERR.BAD_MSG);
+    await expectError(c, { t: 'hello', name: 'Old client', version: 1 }, ERR.BAD_MSG);
+    const oldProtocol = await expectError(c, { t: 'hello', name: 'Old v2', version: 2 }, ERR.BAD_MSG);
+    assert.match(oldProtocol.detail, /version mismatch: server 3/);
     await expectError(c, { t: 'hello', name: 'x'.repeat(13) }, ERR.BAD_MSG);
     // repeated hello updates the name, keeps identity
     const again = await c.hello('Renamed');
@@ -597,7 +600,7 @@ describe('websocket lobby', () => {
     await expectError(c, { t: 'room.join', code: 'AB CD' }, ERR.BAD_MSG);
     await expectError(c, { t: 'room.join', code: { $gt: '' } }, ERR.BAD_MSG);
     await expectError(c, { t: 'room.ready', ready: 'yes' }, ERR.BAD_MSG);
-    await expectError(c, { t: 'room.removeBot', seat: 9 }, ERR.BAD_MSG);
+    await expectError(c, { t: 'room.removeBot', seat: 20 }, ERR.BAD_MSG);
     await expectError(c, { t: 'g.buy', slot: -1 }, ERR.BAD_MSG);
     await expectError(c, { t: 'g.move', uid: 1, to: { area: 'moon' } }, ERR.BAD_MSG);
     await expectError(c, { t: 'ping', c: 'x' }, ERR.BAD_MSG);
@@ -711,6 +714,64 @@ describe('websocket lobby', () => {
     // last human leaving disposes the room
     await expectOk(guest, { t: 'room.leave' });
     await expectError(host, { t: 'room.join', code: own.code }, ERR.ROOM_NOT_FOUND);
+  });
+
+  test('co-op room capacity defaults to four, supports twenty, and solo stays at one', async () => {
+    const host = await pool.player('Cap Host');
+    const standard = await createRoom(host);
+    assert.equal(standard.capacity, 4);
+    assert.equal(standard.seats.length, 4);
+
+    await expectOk(host, { t: 'room.leave' });
+    const solo = await createRoom(host, 'solo');
+    assert.equal(solo.capacity, 1);
+    assert.equal(solo.seats.length, 1);
+    await expectError(host, { t: 'room.setCapacity', capacity: 4 }, ERR.BAD_TARGET);
+
+    await expectOk(host, { t: 'room.leave' });
+    const large = await createRoom(host, 'coop', 'NORMAL', 20);
+    assert.equal(large.capacity, 20);
+    assert.equal(large.seats.length, 20);
+    const guests = [];
+    for (let i = 1; i < 20; i++) {
+      const guest = await pool.player(`Capacity ${i}`);
+      guests.push(guest);
+      const joined = await joinRoom(guest, large.code);
+      assert.equal(seatOf(joined, guest.id).seat, i);
+    }
+    const overflow = await pool.player('Capacity 21');
+    await expectError(overflow, { t: 'room.join', code: large.code }, ERR.ROOM_FULL);
+    await expectError(host, { t: 'room.create', mode: 'solo', difficulty: 'NORMAL', capacity: 20 }, ERR.BAD_MSG);
+  });
+
+  test('room capacity can only shrink above every occupied seat and can grow before start', async () => {
+    const host = await pool.player('Resize Host');
+    const large = await createRoom(host, 'coop', 'NORMAL', 20);
+    const guest = await pool.player('Resize Guest');
+    await joinRoom(guest, large.code);
+    await expectError(guest, { t: 'room.setCapacity', capacity: 20 }, ERR.NOT_HOST);
+    for (let i = 0; i < 18; i++) await expectOk(host, { t: 'room.addBot' });
+    const seats = large.seats;
+    assert.equal(seats.length, 20);
+    await expectError(host, { t: 'room.setCapacity', capacity: 19 }, ERR.BAD_TARGET);
+    await expectOk(host, { t: 'room.removeBot', seat: 19 });
+    await expectOk(host, { t: 'room.setCapacity', capacity: 19 });
+    const updated = await host.waitFor('room.state', (s) => s.capacity === 19);
+    assert.equal(updated.seats.length, 19);
+    await expectOk(host, { t: 'room.setCapacity', capacity: 20 });
+    await host.waitFor('room.state', (s) => s.capacity === 20);
+    await expectOk(host, { t: 'room.setCapacity', capacity: 19 });
+    await expectError(host, { t: 'room.setCapacity', capacity: 3 }, ERR.BAD_MSG);
+    await expectError(host, { t: 'room.setCapacity', capacity: 21 }, ERR.BAD_MSG);
+    await expectError(host, { t: 'room.start' }, ERR.BAD_MSG);
+  });
+
+  test('room capacity cannot change after the match starts', async () => {
+    const host = await pool.player('Resize Host');
+    await createRoom(host);
+    await expectOk(host, { t: 'room.start' });
+    await host.waitFor('room.state', (s) => s.inMatch);
+    await expectError(host, { t: 'room.setCapacity', capacity: 20 }, ERR.ROOM_STARTED);
   });
 
   test('console enable is host-only and mutually exclusive with room matchmaking', async () => {
@@ -1216,8 +1277,8 @@ describe('websocket lobby', () => {
       const a = await pool.player('Twin');
       const before = srv.registry.size;
       const b = await pool.connect();
-      b.send({ t: 'hello', name: 'Twin', token: a.token, version: 1 });
-      for (let k = 0; k < 5; k++) a.send({ t: 'hello', name: 'Ghost', version: 1 });
+      b.send({ t: 'hello', name: 'Twin', token: a.token, version: PROTOCOL_VERSION });
+      for (let k = 0; k < 5; k++) a.send({ t: 'hello', name: 'Ghost', version: PROTOCOL_VERSION });
       a.send({ t: 'room.create', mode: 'coop', difficulty: 'NORMAL' });
       const info = await a.closed;
       assert.equal(info.code, 4001);

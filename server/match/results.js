@@ -90,7 +90,7 @@ function rewardFor(gd, roundsPassed) {
 export function buildResult(m, outcome) {
   const gd = m.gd;
   const { victory, hiddenReached, hiddenCleared } = outcome;
-  const players = [...m.players.values()].sort((a, b) => a.seat - b.seat);
+  const players = m.participants.map((playerId) => m.players.get(playerId));
   const titles = assignTitles(gd, players, victory);
   const teamRounds = victory ? gd.bossRound + (hiddenCleared ? 1 : 0) : Math.max(0, Math.min(m.round, gd.bossRound) - 1);
   const rows = players.map((ps) => {

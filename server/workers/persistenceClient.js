@@ -2,7 +2,7 @@ import { Worker } from 'node:worker_threads';
 import { performance } from 'node:perf_hooks';
 import { setImmediate as nextTurn } from 'node:timers/promises';
 
-// Bound each structured clone, not just the asynchronous encoding time. Rooms contain at most four seats.
+// Bound each structured clone, not just the asynchronous encoding time. Rooms can hold 20 seats; batches remain eight rows.
 const DOCUMENT_BATCH_ROWS = 8;
 
 /** Lazy, single dedicated Worker with bounded requests. Failures skip a save; never encode on the game thread. */

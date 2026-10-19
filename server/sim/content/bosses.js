@@ -67,7 +67,7 @@
 // fx kinds: 'beam' 'shell' 'explode' 'telegraph' 'charge' 'link' 'dash' 'column' 'tide' 'rockfall' 'tentacle' 'equip'
 //   'sword' 'vest' 'blink' 'summon' 'grow' 'phase' 'lpLoss' (x, y + extra {id, r, tiles, kind, tx, ty …}).
 
-import { MOVE_SCALE, MAX_ALIVE_ENEMIES } from '../constants.js';
+import { MOVE_SCALE, fieldEnemyCap } from '../constants.js';
 import { aggroCmp, areaSelectable } from '../targeting.js';
 import { compileRoute } from '../ai.js';
 import { normalizeRoute } from '../simdata.js';
@@ -222,12 +222,13 @@ function branchRoute(tpl, name) {
   return (s && tpl.extraRoutes && tpl.extraRoutes[s.routeIndex]) || null;
 }
 
-/** Spawn one phase of a template branch. Returns the spawned enemies. The loop stops at MAX_ALIVE_ENEMIES and does not allocate a refusal per extra count. */
+/** Spawn one phase of a template branch. Returns the spawned enemies. The loop stops at the field cap and does not allocate a refusal per extra count. */
 export function branchSpawn(b, tpl, name, phaseIdx, { fallback = null, mods = null, at = null } = {}) {
   const br = tpl && tpl.branches && tpl.branches[name];
   if (!Array.isArray(br) || !br.length) return fallback ? fallback() : [];
   const phase = br[Math.max(0, Math.min(phaseIdx, br.length - 1))] || [];
   const out = [];
+  const fieldCap = fieldEnemyCap(b.players.length);
   for (const s of phase) {
     if (!s || (s.action && String(s.action).toUpperCase() !== 'SPAWN')) continue;
     // placeholder slots (NF/N…) of branch spawns: the match may pass the round's replacements as opts.slotKeys
@@ -236,9 +237,9 @@ export function branchSpawn(b, tpl, name, phaseIdx, { fallback = null, mods = nu
     const route = tpl.extraRoutes && tpl.extraRoutes[s.routeIndex];
     const raw = s.count ?? 1;
     const want = typeof raw === 'number' && Number.isFinite(raw) ? Math.max(1, raw) : 1;
-    const cap = Math.min(MAX_ALIVE_ENEMIES, want);
+    const cap = Math.min(fieldCap, want);
     for (let i = 0; i < cap; i++) {
-      if (b.enemies.length >= MAX_ALIVE_ENEMIES && b.aliveEnemies().length >= MAX_ALIVE_ENEMIES) break;
+      if (b.enemies.length >= fieldCap && b.aliveEnemies().length >= fieldCap) break;
       const u = b.spawnEnemy(key, { route: route || (at ? toGoal(b, at.x, at.y) : undefined), pos: route ? undefined : at ? [at.y, at.x] : undefined, tag: s.tag ?? null, countInTotal: s.unharmful ? false : undefined, mods });
       if (!u) break;
       out.push(u);

@@ -422,7 +422,9 @@ export function cardView(c) {
  * @param {import('./PlayerState.js').PlayerState} ps
  */
 export function applyCard(m, ps, card) {
-  const targets = card.kind === 'tactic' && card.team ? [ps, ...m.alivePlayers().filter((p) => p !== ps)] : [ps];
+  const targets = card.kind === 'tactic' && card.team
+    ? (m.variant && typeof m.squadMembers === 'function' ? m.squadMembers(ps, { aliveOnly: true }) : [ps, ...m.alivePlayers().filter((p) => p !== ps)])
+    : [ps];
   for (const p of targets) {
     const ev = { card: { ...card }, family: card.family, picker: ps.playerId, forTeammate: p !== ps };
     const handled = m.dispatcher.runKey(p, `choice:${card.id}`, 'onChoicePick', { kind: 'choice', card }, ev);
@@ -493,8 +495,9 @@ function applyDefault(m, ps, card) {
         const gain = Math.min(PLUGIN_GAIN_COUNT_MAX, count);
         for (let i = 0; i < gain; i++) {
           const extra = typeof ps.diyStockEntries === 'function' ? ps.diyStockEntries() : null;
-          const id = m.pool.roll(m.rngMeta, { maxTier: Math.max(1, ps.shop.level), filter: hasBond, extra })
-            || m.pool.roll(m.rngMeta, { maxTier: 6, filter: hasBond, extra });
+          const pool = m.operatorPool(ps);
+          const id = pool.roll(m.rngMeta, { maxTier: Math.max(1, ps.shop.level), filter: hasBond, extra })
+            || pool.roll(m.rngMeta, { maxTier: 6, filter: hasBond, extra });
           if (id) ps.acquireChess(id, { source: 'choice' });
         }
         handled = true;

@@ -36,7 +36,7 @@
 }
 ```
 
-- `mode`：`solo` 独立模拟 / `coop` 同盟模拟；容量分别为 1 / 4。`occupied` 包含 AI 和断线保留席位；统计和席位均不含观战者。`connectedHumans` 只计在线且未离席的真人。
+- `mode`：`solo` 独立模拟 / `coop` 同盟模拟。独立房间容量为 1，同盟自定义房间为 4–20（示例中的 `capacity: 4` 是默认值）；`occupied` 包含 AI 和断线保留席位，统计和席位均不含观战者。`connectedHumans` 只计在线且未离席的真人。对局规则变体按实际参战人数是否超过 4 启用，不按房间容量推断。详见[5–20 人同盟房间](MULTIPLAYER_5_20.md)。
 - `difficulty`：`FUNNY` 标准模拟、`NORMAL` 险境模拟、`HARD` 绝境模拟、`ABYSS` 终极模拟；展示名称使用 `difficultyName`。
 - `joinable`：同盟房间未开局且有空玩家席位，不表示可否重连 / 观战。
 - 对局状态取最近发布的 `m.public`：`phase`、`round`、常规最后回合 `lastRound`、截止时间 `deadline`、`paused`。未开局时使用示例中的默认值，`deadline: 0` 表示无有效截止时间。

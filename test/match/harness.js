@@ -164,8 +164,7 @@ export function checkInvariants(m) {
 
 /** The original harness checks (kept alongside collectViolations; they must agree). */
 function legacyInvariants(m) {
-  const pool = m.pool;
-  const held = new Map();
+  const heldByPool = new Map();
   const uids = new Set();
   const note = (p) => {
     assert.ok(Number.isInteger(p.uid) && p.uid > 0, `bad uid ${p.uid}`);
@@ -213,8 +212,14 @@ function legacyInvariants(m) {
         assert.ok(Number.isInteger(p.poolCopies) && p.poolCopies >= 0);
         const base = m.gd.baseIdOf(p.id);
         // a 自选 piece's copies are its player's own stock (0.2.0, server/match/player/diy.js)
-        const tally = ps.diyStock && ps.diyStock.has(base) ? diyHeld : held;
-        tally.set(base, (tally.get(base) || 0) + p.poolCopies);
+        if (ps.diyStock && ps.diyStock.has(base)) {
+          diyHeld.set(base, (diyHeld.get(base) || 0) + p.poolCopies);
+        } else {
+          const pool = m.operatorPool(ps);
+          let held = heldByPool.get(pool);
+          if (!held) heldByPool.set(pool, held = new Map());
+          held.set(base, (held.get(base) || 0) + p.poolCopies);
+        }
       } else if (p.kind === 'item') {
         assert.ok(m.gd.item(p.id), `unknown item ${p.id}`);
       } else if (p.kind === 'token') {
@@ -233,12 +238,16 @@ function legacyInvariants(m) {
       assert.equal(e.left + (diyHeld.get(base) || 0), e.cap, `${ps.playerId} 自选 stock ${base}: left ${e.left} + held ${diyHeld.get(base) || 0} != cap ${e.cap}`);
     }
   }
-  for (const [base, e] of pool.entries) {
-    assert.ok(Number.isInteger(e.left) && e.left <= e.cap, `pool ${base} balance ${e.left} cap ${e.cap}`);
-    assert.equal(pool.left(base), Math.max(0, e.left), 'overdrawn ownership never becomes a negative shop supply');
-    assert.equal(e.left + (held.get(base) || 0), e.cap, `pool accounting ${base}: left ${e.left} + held ${held.get(base) || 0} != cap ${e.cap}`);
+  const pools = m.variant ? [...m.operatorPools.values()] : [m.pool];
+  for (const pool of pools) {
+    const held = heldByPool.get(pool) || new Map();
+    for (const [base, e] of pool.entries) {
+      assert.ok(Number.isInteger(e.left) && e.left <= e.cap, `pool ${base} balance ${e.left} cap ${e.cap}`);
+      assert.equal(pool.left(base), Math.max(0, e.left), 'overdrawn ownership never becomes a negative shop supply');
+      assert.equal(e.left + (held.get(base) || 0), e.cap, `pool accounting ${base}: left ${e.left} + held ${held.get(base) || 0} != cap ${e.cap}`);
+    }
+    for (const [base, n] of held) if (!pool.has(base)) assert.equal(n, 0, `non-pool chess ${base} holds copies`);
   }
-  for (const [base, n] of held) if (!pool.has(base)) assert.equal(n, 0, `non-pool chess ${base} holds copies`);
   return true;
 }
 
@@ -247,7 +256,7 @@ export function give(m, ps, chessId, where = 'hand', at = null) {
   const rec = m.gd.chess(chessId);
   assert.ok(rec, `unknown chess ${chessId}`);
   const base = m.gd.baseIdOf(chessId);
-  const taken = m.pool.take(base, rec.isGolden ? m.gd.goldenCopies : 1);
+  const taken = ps.poolOf(base).take(base, rec.isGolden ? m.gd.goldenCopies : 1);
   const piece = ps.newPiece('chess', chessId, { poolCopies: taken });
   if (where === 'board') {
     ps.board.set(tileKey(at[0], at[1]), piece);

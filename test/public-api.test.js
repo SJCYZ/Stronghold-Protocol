@@ -100,6 +100,23 @@ test('room query reports lobby and match lifecycle, includes AI and excludes spe
   assert.equal((await request(srv, path)).status, 404);
 });
 
+test('room query reports configured capacity and remains joinable beyond four occupied seats', async (t) => {
+  const srv = await boot(t);
+  const host = await player(t, srv, '房主');
+  assert.equal((await host.request({ t: 'room.create', mode: 'coop', difficulty: 'NORMAL', capacity: 20 })).t, 'ok');
+  const state = await host.waitFor('room.state');
+  assert.equal(state.capacity, 20);
+  const room = srv.lobby.getRoom(state.code);
+  for (let i = 0; i < 3; i++) assert.equal((await host.request({ t: 'room.addBot' })).t, 'ok');
+  assert.equal(room.seats.filter(Boolean).length, 4);
+
+  const data = JSON.parse((await request(srv, `/api/rooms/${state.code}/status`)).body);
+  assert.equal(data.capacity, 20);
+  assert.equal(data.seats.length, 20);
+  assert.equal(data.occupied, 4);
+  assert.equal(data.joinable, true);
+});
+
 test('solo capacity is one and is never joinable; room route rejects malformed codes and trailing slashes', async (t) => {
   const srv = await boot(t);
   const host = await player(t, srv, '独立');
