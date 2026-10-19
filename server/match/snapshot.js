@@ -635,6 +635,7 @@ function enterPhase(m, doc, now) {
       if (!m.sp || typeof m.sp !== 'object') { m.sp = null; m.enterPrep(); break; }
       m.setDeadline(0);
       m.startSpTurn();
+      if (m.sp.mode === 'squad') for (const ps of m.alivePlayers()) m.markPrivate(ps);
       break;
     }
     case PHASE.ROUND_START: {

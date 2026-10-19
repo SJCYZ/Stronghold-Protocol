@@ -172,3 +172,61 @@ test('所有存活小队完成后进入 PREP 并清理逐队计时器', () => {
     assert.equal(m._spTimers.size, 0);
   }
 });
+test('多人机变进入 SP_DRAFT 时推送各自小队私有牌池', () => {
+  const h = startDraft();
+  const { m } = h;
+  try {
+    h.sent.length = 0;
+    m._privDirty.clear();
+    m.enterSpDraft();
+    m.flush(true);
+    const a = h.lastTo('p_0', 'm.private');
+    const b = h.lastTo('p_4', 'm.private');
+    assert.ok(a?.sp, 'first squad player receives private SP state');
+    assert.ok(b?.sp, 'second squad player receives private SP state');
+    assert.deepEqual(a.sp.cards.map((card) => card.id), m.sp.squads[0].cards.map((card) => card.id));
+    assert.deepEqual(h.lastTo('p_1', 'm.private').sp.cards.map((card) => card.id), a.sp.cards.map((card) => card.id), 'teammates receive the same squad deck');
+    assert.deepEqual(b.sp.cards.map((card) => card.id), m.sp.squads[1].cards.map((card) => card.id));
+    assert.notDeepEqual(a.sp.cards, b.sp.cards, 'different squads receive different private decks');
+    const pub = h.lastBc('m.public').sp;
+    assert.equal(JSON.stringify(pub).includes('cards'), false);
+    for (const squad of m.sp.squads) for (const card of squad.cards) {
+      assert.equal(JSON.stringify(pub).includes(card.id), false, 'public SP contains no card ID');
+    }
+  } finally {
+    m.dispose();
+  }
+});
+
+test('多人机变恢复 SP_DRAFT 后推送每队私有牌池', () => {
+  const a = startDraft();
+  const b = makeMatch({ mode: 'coop', seats: Array.from({ length: 8 }, (_, seat) => ({
+    seat, playerId: `p_${seat}`, name: `P${seat}`, isBot: false, connected: true,
+  })), seed: 23, fake: true });
+  try {
+    const doc = snapshotMatch(a.m);
+    assert.ok(doc);
+    assert.equal(restoreMatch(b.m, doc, DEPS), true);
+    b.sent.length = 0;
+
+    for (const ps of b.m.players.values()) ps.connected = true;
+    b.m.flush(true);
+    const first = b.lastTo('p_0', 'm.private');
+    const other = b.lastTo('p_4', 'm.private');
+    assert.ok(first?.sp, 'restored first squad player receives private SP state');
+    assert.ok(other?.sp, 'restored second squad player receives private SP state');
+    assert.deepEqual(first.sp.cards.map((card) => card.id), b.m.sp.squads[0].cards.map((card) => card.id));
+    assert.deepEqual(b.lastTo('p_1', 'm.private').sp.cards.map((card) => card.id), first.sp.cards.map((card) => card.id));
+    assert.deepEqual(other.sp.cards.map((card) => card.id), b.m.sp.squads[1].cards.map((card) => card.id));
+    assert.notDeepEqual(first.sp.cards, other.sp.cards);
+    const pub = b.lastBc('m.public').sp;
+    for (const squad of b.m.sp.squads) for (const card of squad.cards) {
+      assert.equal(JSON.stringify(pub).includes(card.id), false, 'public SP contains no card ID after restore');
+    }
+
+    assert.equal(JSON.stringify(pub).includes('cards'), false);
+  } finally {
+    a.m.dispose();
+    b.m.dispose();
+  }
+});

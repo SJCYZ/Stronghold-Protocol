@@ -35,6 +35,7 @@ export class MatchSpDraft {
       this._spTimers = new Map();
       this._spTimerTokens = new Map();
       this.startSpTurn();
+      for (const ps of alive) this.markPrivate(ps);
       this.markPublic();
       return;
     }
