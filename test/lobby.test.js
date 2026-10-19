@@ -763,7 +763,7 @@ describe('websocket lobby', () => {
     await expectOk(host, { t: 'room.setCapacity', capacity: 19 });
     await expectError(host, { t: 'room.setCapacity', capacity: 3 }, ERR.BAD_MSG);
     await expectError(host, { t: 'room.setCapacity', capacity: 21 }, ERR.BAD_MSG);
-    await expectError(host, { t: 'room.start' }, ERR.BAD_MSG);
+    await expectError(host, { t: 'room.start' }, ERR.NOT_READY);
   });
 
   test('room capacity cannot change after the match starts', async () => {
