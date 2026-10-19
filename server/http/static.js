@@ -133,6 +133,18 @@ export function createStaticHandler({ publicDir, dataDir, sharedDir, simDir = pa
   const shimBody = Buffer.from(DATA_SHIM_JS);
   const shimTag = `"shim-${shimBody.length.toString(16)}"`;
   const gzipCache = new CompressCache(); // brotli and gzip bodies (files.js)
+  const serveIndex = async (req, res, file, stat, segments, query) => {
+    if (!cdn) {
+      await serveFile(req, res, file, stat, 'public', segments, query, gzipCache, log);
+      return;
+    }
+    const html = await fsp.readFile(file, 'utf8');
+    const body = Buffer.from(html.replace('href="/fonts/fonts.css"', `href="${cdn}/fonts/fonts.css"`));
+    const hash = createHash('sha256').update(body).digest('hex');
+    await serveHashedBuffer(req, res, {
+      body, hash: `index-${hash}`, type: MIME['.html'], cacheControl: 'no-cache', key: 'index.html', cache: gzipCache,
+    });
+  };
 
   // A small runtime module supplies the base before client data/asset loaders run; no separate config fetch needed.
   const cdnConfigBody = Buffer.from(`export const ASSETS_CDN = ${JSON.stringify(cdn)};\nexport const DATA_CDN = ${JSON.stringify(dataCdnBase)};\n`);
@@ -146,7 +158,7 @@ export function createStaticHandler({ publicDir, dataDir, sharedDir, simDir = pa
       return;
     }
     if (useBuiltClient && (decoded === '/' || decoded === '/index.html')) {
-      await serveFile(req, res, builtIndex, await fsp.stat(builtIndex), 'public', ['build', 'index.html'], query, gzipCache, log);
+      await serveIndex(req, res, builtIndex, await fsp.stat(builtIndex), ['build', 'index.html'], query);
       return;
     }
     // The runtime CDN setting is served by the game origin, independent of the data CDN.
@@ -357,6 +369,10 @@ export function createStaticHandler({ publicDir, dataDir, sharedDir, simDir = pa
       const studio = await studioRealPath();
       const real = studio ? await fsp.realpath(absPath).catch(() => null) : null;
       if (studio && (!real || real === studio || real.startsWith(studio + path.sep))) { sendError(req, res, 404, '页面不存在 · Not found', decoded.length <= 200 ? decoded : ''); return; }
+    }
+    if (cdn && mount.name === 'public' && segments.length === 1 && segments[0].toLowerCase() === 'index.html') {
+      await serveIndex(req, res, absPath, stat, segments, query);
+      return;
     }
     // assets CDN: the manifests are rewritten on the way out, so every client keeps requesting /data/assets.json
     if (cdn && mount.name === 'data' && segments.length === 1 && CDN_MANIFESTS.has(segments[0].toLowerCase())) {

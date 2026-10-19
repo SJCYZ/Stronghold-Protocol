@@ -71,9 +71,10 @@ export async function buildFonts(fontsDir, log = console.log, { verified = false
       errors.push(`${f.name}: ${e.message}`);
     }
     files[f.name] = entry;
+    // Resolve font files against fonts.css so an ASSETS_CDN prefix covers both stylesheet and fonts.
     const srcs = [];
-    if (entry.woff2) srcs.push(`url('${entry.woff2}') format('woff2')`);
-    srcs.push(`url('${entry.original}') format('${f.ext === 'ttf' ? 'truetype' : 'opentype'}')`);
+    if (entry.woff2) srcs.push(`url('${f.name}.woff2') format('woff2')`);
+    srcs.push(`url('${f.name}.${f.ext}') format('${f.ext === 'ttf' ? 'truetype' : 'opentype'}')`);
     faces.push(`@font-face {\n  font-family: '${f.family}';\n  font-style: ${f.style};\n  font-weight: ${f.weight};\n` +
       `  font-display: swap;\n  src: ${srcs.join(',\n       ')};\n}`);
   }

@@ -468,10 +468,10 @@ docker run -d --name stronghold -p 3000:3000 --restart unless-stopped \
   stronghold-protocol
 ```
 
-- 服务端在返回 `data/assets.json`、`data/local-assets.json` 时，把其中所有 `/assets/…` 改写成 `<SP_ASSETS_CDN>/assets/…`，因此**客户端零改动**：图片、Spine（skel / atlas / 贴图）、音频、本地提取的素材都自动走 CDN。
+- 服务端在返回 `data/assets.json`、`data/local-assets.json` 时，把其中所有 `/assets/…`、`/fonts/…` 改写到 `SP_ASSETS_CDN`，并将首页的自托管字体 CSS 指向 CDN，因此**客户端零改动**：图片、Spine（skel / atlas / 贴图）、音频、字体、本地提取的素材都自动走 CDN。
 - 官方特效库也会按运行时 `SP_ASSETS_CDN` 改写 `local-fx.json` 中的素材地址，包括索引、纹理表、预制体、网格及完整/半尺寸贴图；直接从 `SP_DATA_CDN` 读取原始清单、旧版清单回退也适用。已带域名或插件地址保持不变。部署此客户端修复需要重新构建并发布前端、刷新页面，不需要重新生成素材清单。
-- CDN 侧目录结构必须与 `public/assets/` 一致（把该目录整个上传即可），并且**必须允许跨域**：浏览器会用 `fetch` 取 Spine 的 `.skel` / `.atlas`、用 `crossOrigin="anonymous"` 取图片。Nginx 例：`add_header Access-Control-Allow-Origin "*" always;`（音频走 `<audio>`，不需要 CORS）。
-- 素材带内容指纹，可以放心设长缓存（`Cache-Control: public, max-age=31536000, immutable`）；`/fonts/` 与 `public/vendor/` 仍由游戏服务器自己提供。
+- CDN 侧目录结构必须与 `public/assets/`、`public/fonts/` 一致，并且**必须允许游戏源站跨域读取**：浏览器会用 `fetch` 取 Spine 的 `.skel` / `.atlas`、用 `crossOrigin="anonymous"` 取图片和字体。R2 自定义域名应为静态对象配置缓存规则，并在 R2 CORS 中允许游戏域名；`r2.dev` 仅用于开发，不适合作为生产 CDN。
+- `public/vendor/` 仍由游戏服务器自己提供。资源更新后用现有 `scripts/sync-to-r2.sh --apply` 上传并清理对应 CDN 前缀缓存。
 - 没设置该变量时行为完全不变（服务器照旧自己提供 `/assets/…`），设置后本地 `/assets/` 仍然可用，可随时回退。
 - 只想换目录名 / 走同源反代前缀也行：`SP_ASSETS_CDN=/cdn`。
 - ZIP 资源包可独立配置 `SP_RESOURCE_PACK_ROUTES`（有序 URL/目录模板 JSON 数组），自动逐条故障切换，当前素材 CDN 始终作为最后一条 ZIP 线路；配置、路径重写与 CORS 示例见 [RESOURCE_PACKS.md](RESOURCE_PACKS.md#zip-下载多线路与路径重写)。
@@ -488,9 +488,10 @@ docker run -d --name stronghold -p 3000:3000 --restart unless-stopped \
 ```
 
 - 页面数据加载器、浏览器战斗模拟和独立素材加载器通过运行时 `/js/asset-cdn.js` 的 `DATA_CDN`，直接请求 `<SP_DATA_CDN>/data/chess.json` 等静态 JSON，无需先请求游戏源站。也支持同源前缀，例如 `/cdn`；移除变量并重启后恢复同源加载。Node 的 `/data/*.json` 始终读取本地数据，保持 GET/HEAD、ETag/304 和原有缓存策略，不再跳转到数据 CDN。
-- `data/` 中全部 JSON 都从 `DATA_CDN` 加载，包括 `assets.json`、`asset-hashes.json`、`local-assets.json`、`local-fx.json`、`resource-manifest.json`、`resource-packs.json`、游戏数据和 `data/i18n/` 文本。游戏文本语言包 `/packs/<id>/texts/*.json` 也使用 `DATA_CDN`；UI 语言 `/i18n/*.json` 仍使用 `ASSETS_CDN`。浏览器读取素材清单后，按 `/js/asset-cdn.js` 提供的 `ASSETS_CDN` 改写 `/assets/…`。
+- `data/` 中全部 JSON 都从 `DATA_CDN` 加载，包括 `assets.json`、`asset-hashes.json`、`local-assets.json`、`local-fx.json`、`resource-manifest.json`、`resource-packs.json`、游戏数据和 `data/i18n/` 文本。游戏文本语言包 `/packs/<id>/texts/*.json` 也使用 `DATA_CDN`；UI 语言 `/i18n/*.json` 仍使用 `ASSETS_CDN`。浏览器读取素材清单后，按 `/js/asset-cdn.js` 提供的 `ASSETS_CDN` 改写 `/assets/…` 和 `/fonts/…`。
 - **服务器本地 `data/` 必须保留**，游戏逻辑、插件验证和战斗计算仍从本地读取。数据 CDN 同步使用 `bash scripts/sync-to-r2.sh`：上传完整 data、assets、fonts、语言和可选 resource packs，并在临时目录生成预载 resource manifest，不覆盖本机清单。先将 `config/r2-sync.example.json` 复制为已忽略的 `config/r2-sync.json`，填写 R2 和 CDN 配置；默认预演，加 `--apply` 才上传并清缓存。JSON 配置默认按 CDN 路径前缀清缓存，兼容环境变量模式仍清整个 Zone；均需要 Zone Cache Purge 权限。详见 [R2_SYNC.md](R2_SYNC.md)。CDN 允许 JSON 跨域读取，并设置 `Cache-Control: no-cache` 配合验证器；也可使用带版本号的 CDN 根目录。
 - 两个 CDN 变量可以独立配置。`GET /metrics` 的 `dataCdn` 显示当前数据 CDN 根目录；未配置时为 `null`。
+- `deploy/production/docker-compose.yml` 从部署环境读取 `SP_ASSETS_CDN` 与 `SP_DATA_CDN`；配置后重建并重启游戏容器即可切换客户端静态资源请求，API 和 WebSocket 仍使用原游戏源站。
 
 更新资源后运行 R2 同步脚本。`/js/asset-cdn.js` 由游戏服务器提供，使用 `no-cache` 和 ETag 校验；代理应保留此缓存策略，以便切换素材或数据 CDN 后浏览器取得新地址。首次升级到所有 data JSON 直连 CDN 的版本需要重新构建前端并重启服务；之后仅切换 CDN 环境变量无需重新构建，刷新页面即可读取启动时的新配置。
 

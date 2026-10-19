@@ -70,17 +70,19 @@ To serve the art from a CDN (or any other static host) instead of the game serve
 SP_ASSETS_CDN=https://cdn.example.com/stronghold npm start
 ```
 
-The server rewrites every `/assets/…` URL of the two manifests it serves — `data/assets.json` and
-`data/local-assets.json` — to `<SP_ASSETS_CDN>/assets/…` (images,
-Spine skeletons/atlases, audio and the local-client extraction all follow the manifest). A same-origin prefix works too
-(`SP_ASSETS_CDN=/cdn`). Leave it unset and the server serves `/assets/…` itself, exactly as before; when it is set, the
+The server rewrites every `/assets/…` and `/fonts/…` URL of the two manifests it serves — `data/assets.json` and
+`data/local-assets.json` — to `<SP_ASSETS_CDN>/…` (images,
+Spine skeletons/atlases, audio, fonts and the local-client extraction all follow the manifest). The page's self-hosted
+font stylesheet also uses `<SP_ASSETS_CDN>/fonts/fonts.css`; its font file references are relative to that stylesheet.
+A same-origin prefix works too (`SP_ASSETS_CDN=/cdn`). Leave it unset and the server serves `/assets/…` and `/fonts/…`
+itself, exactly as before; when it is set, the
 local copy still works, so you can roll back at any time. `GET /metrics` reports the active base as `assetsCdn`.
 
-The CDN must mirror the `public/assets/` layout (upload the directory as-is) and must allow cross-origin reads: the
+The CDN must mirror the `public/assets/` and `public/fonts/` layouts (upload those directories as-is) and must allow cross-origin reads: the
 client fetches Spine `.skel` / `.atlas` files with `fetch` and loads images with `crossOrigin="anonymous"`, so send
 `Access-Control-Allow-Origin` (the audio is played through `<audio>` and needs no CORS). Assets carry no content hash,
 so a long `Cache-Control` is safe only if you invalidate on update — the server itself uses `max-age=86400` for
-`/assets/`.
+`/assets/` and `/fonts/`.
 
 Game data can use a CDN: set `SP_DATA_CDN=https://cdn.example.com/stronghold` and upload the full `data/` directory.
 All same-origin `/data/**/*.json` requests use runtime `DATA_CDN`, including game tables, `assets.json`,
