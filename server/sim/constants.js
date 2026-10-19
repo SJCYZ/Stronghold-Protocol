@@ -226,6 +226,12 @@ export const EVENT_BUFFER_CAP = 50000;
 export const MAX_HOOK_DEPTH = 32;
 /** spawnEnemy refuses to exceed this many living enemies on one field (runaway content spawn loops). */
 export const MAX_ALIVE_ENEMIES = 600;
+/** A shared field has 600 live enemies per actual BattleSpec player, up to the protocol's 20-player limit. */
+export const MAX_FIELD_PLAYERS = 20;
+export function fieldEnemyCap(playerCount) {
+  const n = Number.isFinite(playerCount) ? Math.max(1, Math.min(MAX_FIELD_PLAYERS, Math.floor(playerCount))) : 1;
+  return MAX_ALIVE_ENEMIES * n;
+}
 
 /** Heal-over-time / regen events are aggregated and only emitted when they reach this amount. */
 export const REGEN_EVENT_MIN = 1;

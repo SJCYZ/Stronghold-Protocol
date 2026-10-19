@@ -395,7 +395,7 @@ function compactMods(m) {
 export function compactResult(res) {
   const r = res && typeof res === 'object' ? res : {};
   const perPlayer = {};
-  for (const pid of Object.keys(r.perPlayer || {}).slice(0, 4)) {
+  for (const pid of Object.keys(r.perPlayer || {}).slice(0, 20)) {
     const p = r.perPlayer[pid] || {};
     const layerGains = {};
     for (const [k, v] of Object.entries(p.layerGains || {}).slice(0, 40)) if (isKey(k) && fnum(v) > 0) layerGains[k] = Math.min(1e4, fnum(v));

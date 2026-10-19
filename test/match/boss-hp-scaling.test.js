@@ -17,8 +17,8 @@ test('every leader and difficulty: bloodPoint × the players alive (co-op), × 1
     const solo = new GameData(DATA, `mode_single_${difficulty.toLowerCase()}`);
     for (const id of Object.keys(DATA.bosses)) {
       const base = DATA.bosses[id].bloodPoint[difficulty];
-      for (const n of [1, 2, 3, 4]) assert.equal(bossPoolHp(gd, id, n), base * n, `${id} ${difficulty} ×${n}`);
-      assert.equal(bossPoolHp(solo, id, 1), base, `${id} ${difficulty} solo`);
+      for (const n of [1, 2, 3, 4, 5, 20]) assert.equal(bossPoolHp(gd, id, n), base * n, `${id} ${difficulty} ×${n}`);
+      for (const n of [1, 2, 4, 5, 20]) assert.equal(bossPoolHp(solo, id, n), base, `${id} ${difficulty} solo ×${n}`);
     }
   }
 });
@@ -40,6 +40,9 @@ for (const hidden of [false, true]) {
     m.startFinalAssault(hidden);
     const id = hidden ? m.hiddenBossId : m.bossId;
     assert.equal(m.bossPool.maxHp, DATA.bosses[id].bloodPoint.HARD * 2);
+    const frozen = m.bossPool.maxHp;
+    m.onLeave('p_0');
+    assert.equal(m.bossPool.maxHp, frozen, 'the pool stays based on alive players at boss start');
     m.dispose();
   });
 }
@@ -63,7 +66,7 @@ test('mode scale overrides the global scale; GameData and the plain fallback agr
   for (const modeId of ['mode_single_abyss', 'mode_multi_abyss']) {
     const gd = new GameData(data, modeId);
     const base = data.bosses.boss_8.bloodPoint.ABYSS;
-    for (const n of [1, 2, 3, 4]) {
+    for (const n of [1, 2, 3, 4, 5, 20]) {
       const expected = gd.isSolo ? base : base * n;
       const plain = { boss: (id) => gd.boss(id), difficulty: gd.difficulty, mode: gd.mode, config: gd.config, isSolo: gd.isSolo };
       assert.equal(gd.bossPoolHp('boss_8', n), expected);
@@ -71,7 +74,7 @@ test('mode scale overrides the global scale; GameData and the plain fallback agr
     }
     data.config.modes[modeId].bossHpScale = { ...data.config.modes[modeId].bossHpScale, solo: 0.25, coop: 1, aliveScaling: false };
     const fixed = new GameData(data, modeId);
-    assert.equal(bossPoolHp(fixed, 'boss_8', 2), gd.isSolo ? base * 0.25 : base);
+    for (const n of [2, 5, 20]) assert.equal(bossPoolHp(fixed, 'boss_8', n), gd.isSolo ? base * 0.25 : base);
   }
 });
 

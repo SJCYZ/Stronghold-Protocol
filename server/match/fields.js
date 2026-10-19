@@ -31,7 +31,7 @@
 //   uniteBillBounds(spawns, gd)            联防: per leaker, the most survivors settlement can bill (sent in + the
 //                                          offspring bound) — the live counter's clamp
 //   syntheticResult(players, progress)     stand-in when a boss field's client never reported
-import { TICK, SNAPSHOT_EVERY } from '../sim/constants.js';
+import { TICK, SNAPSHOT_EVERY, MAX_ALIVE_ENEMIES, fieldEnemyCap } from '../sim/constants.js';
 import { layerGainRoom } from '../../shared/constants.js';
 import { uniteLeft } from '../sim/spec.js';
 import { diyTokenOwner, diyRecordOf } from '../../shared/diy.js';
@@ -707,9 +707,12 @@ export function specBounds(spec, gd = null) {
     }
     players.set(p.playerId, { chess, all, names, defIds, bonds: gd ? layerBondsOf(p, gd) : null, startLayers, layerAllow: gd ? layerAllowanceOf(p, gd) : new Map() });
   }
+  const specPlayerCount = Array.isArray(spec && spec.players) ? spec.players.length : 0;
+  const fieldCap = fieldEnemyCap(specPlayerCount);
   const round = Number(spec && spec.round) || 0;
   return {
     keyCounts, keySourceCounts, derivedSourceCounts, uncountedKeys, derived, spawnCount, bountyCoins, sources, players,
+    fieldCap, specPlayerCount,
     // content spawns (splits, summons, boss minions) can add enemies beyond the schedule
     maxTotal,
     layerCap: 60 + 4 * round,
@@ -769,6 +772,7 @@ export function validateClientResult(spec, raw, { gd = null } = {}) {
   try {
     if (!spec || !raw || typeof raw !== 'object' || !raw.perPlayer || typeof raw.perPlayer !== 'object') return bad('shape');
     const B = specBounds(spec, gd);
+    if (B.specPlayerCount !== B.players.size || (B.specPlayerCount > 0 && B.fieldCap !== MAX_ALIVE_ENEMIES * B.specPlayerCount)) return bad('players');
     const bossLike = spec.kind === 'boss' || spec.kind === 'hidden';
     if (!['cleared', 'timeout', 'forced'].includes(raw.reason)) return bad('reason');
     if (!finiteIn(raw.time, 0, B.maxTime)) return bad('time');
