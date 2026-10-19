@@ -38,7 +38,7 @@ export function collectViolations(m, { limit = 25 } = {}) {
   const out = [];
   const fail = (msg) => { if (out.length < limit) out.push(msg); };
   const gd = m.gd;
-  const held = new Map();
+  const heldByPool = new Map();
   const uids = new Set();
   const banned = new Set(m.bannedChess || []);
   const note = (ps, p) => {
@@ -110,8 +110,14 @@ export function collectViolations(m, { limit = 25 } = {}) {
         const maxCopies = rec.isGolden ? gd.goldenCopies : 1;
         if (!Number.isInteger(p.poolCopies) || p.poolCopies < 0 || p.poolCopies > maxCopies) fail(`${id}: ${p.id} holds ${p.poolCopies} copies`);
         const base = gd.baseIdOf(p.id);
-        const tally = rec.isDiy ? diyHeld : held;
-        tally.set(base, (tally.get(base) || 0) + (p.poolCopies || 0));
+        if (rec.isDiy) {
+          diyHeld.set(base, (diyHeld.get(base) || 0) + (p.poolCopies || 0));
+        } else {
+          const pool = m.operatorPool(ps);
+          let held = heldByPool.get(pool);
+          if (!held) heldByPool.set(pool, held = new Map());
+          held.set(base, (held.get(base) || 0) + (p.poolCopies || 0));
+        }
       } else if (p.kind === 'item') {
         if (!gd.item(p.id)) fail(`${id}: unknown item ${p.id}`);
         countItem(p);
@@ -195,13 +201,17 @@ export function collectViolations(m, { limit = 25 } = {}) {
     for (const [base, n] of diyHeld) if (!(ps.diyStock && ps.diyStock.has(base)) && n !== 0) fail(`${id}: 自选 slot ${base} without stock holds ${n} copies`);
   }
 
-  // shared pool accounting
-  for (const [base, e] of m.pool.entries) {
-    if (!(Number.isInteger(e.left) && e.left <= e.cap)) fail(`pool ${base}: balance ${e.left} cap ${e.cap}`);
-    const h = held.get(base) || 0;
-    if (e.left + h !== e.cap) fail(`pool ${base}: left ${e.left} + held ${h} != cap ${e.cap}`);
+  // shared / per-player operator pool accounting
+  const pools = m.variant ? [...m.operatorPools.values()] : [m.pool];
+  for (const pool of pools) {
+    const held = heldByPool.get(pool) || new Map();
+    for (const [base, e] of pool.entries) {
+      if (!(Number.isInteger(e.left) && e.left <= e.cap)) fail(`pool ${base}: balance ${e.left} cap ${e.cap}`);
+      const h = held.get(base) || 0;
+      if (e.left + h !== e.cap) fail(`pool ${base}: left ${e.left} + held ${h} != cap ${e.cap}`);
+    }
+    for (const [base, n] of held) if (!pool.has(base) && n !== 0) fail(`non-pool chess ${base} holds ${n} copies`);
   }
-  for (const [base, n] of held) if (!m.pool.has(base) && n !== 0) fail(`non-pool chess ${base} holds ${n} copies`);
 
   // Displayed shop cards and item rewards may overdraw; itemPool.debt is that overage (#624). Fixed gift families
   // may overdraw without a debt entry. debt > over is always a missed repay or a debt recorded for a piece not kept.

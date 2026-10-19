@@ -244,6 +244,13 @@ export function captureMatch(m) {
   doc.itemDebt = Object.fromEntries(m.itemPool?.debt || []);
   doc.poolLeft = {};
   for (const [id, e] of m.pool.entries) doc.poolLeft[id] = e.left;
+  if (m.variant) {
+    doc.operatorPoolLeft = {};
+    for (const [playerId, pool] of m.operatorPools) {
+      doc.operatorPoolLeft[playerId] = {};
+      for (const [id, e] of pool.entries) doc.operatorPoolLeft[playerId][id] = e.left;
+    }
+  }
   // RNG positions: keeps the continuation of a restored match identical to the run it replaces
   doc.rng = {};
   for (const name of RNG_NAMES) {
@@ -362,6 +369,17 @@ export function restoreMatch(m, doc, { createRngFromState, log = console, bestEf
       // 0.2.4 Mimic grants may overdraw stock. A deficit must survive restart or returns expose free copies too early.
       const balance = Number(left);
       if (e) e.left = Math.min(e.cap, Math.trunc(Number.isFinite(balance) ? balance : 0));
+    }
+  }
+  if (m.variant) {
+    for (const [playerId, pool] of m.operatorPools) {
+      const balances = doc.operatorPoolLeft?.[playerId] || doc.poolLeft;
+      if (!balances || typeof balances !== 'object') continue;
+      for (const [id, left] of Object.entries(balances)) {
+        const e = pool.entries.get(id);
+        const balance = Number(left);
+        if (e) e.left = Math.min(e.cap, Math.trunc(Number.isFinite(balance) ? balance : 0));
+      }
     }
   }
   m.itemPool.debt.clear();
@@ -615,6 +633,11 @@ export function matchState(m) {
   for (const k of ['draft', 'sp']) if (match[k] && typeof match[k] === 'object') delete match[k].turnDeadline;
   const pool = {};
   for (const [id, e] of m.pool.entries) pool[id] = e.left;
+  const operatorPools = {};
+  for (const [playerId, stock] of m.operatorPools || []) {
+    operatorPools[playerId] = {};
+    for (const [id, e] of stock.entries) operatorPools[playerId][id] = e.left;
+  }
   const rng = {};
   for (const n of RNG_NAMES) rng[n] = m[n] && typeof m[n].state === 'function' ? m[n].state() : null;
   const players = {};
@@ -623,7 +646,7 @@ export function matchState(m) {
     for (const k of PLAYER_FIELDS) p[k] = encodeState(ps[k]);
     players[ps.playerId] = p;
   }
-  return { match, pool, rng, players };
+  return { match, pool, operatorPools, rng, players };
 }
 
 /** JSON digest of matchState (tests / tools). */

@@ -631,7 +631,7 @@ export function makeCtx(m, ps, source, hook, ev = null, preview = null) {
         return typeof opts.filter === 'function' ? !!opts.filter(id) : true;
       };
       const extra = typeof ps.diyStockEntries === 'function' ? ps.diyStockEntries() : null;
-      return m.pool.roll(rng, { maxTier: Number.isInteger(opts.maxTier) ? opts.maxTier : 6, tier: Number.isInteger(opts.tier) ? opts.tier : null, filter: f, extra, ignoreCounts: opts.ignoreCounts === true });
+      return m.operatorPool(ps).roll(rng, { maxTier: Number.isInteger(opts.maxTier) ? opts.maxTier : 6, tier: Number.isInteger(opts.tier) ? opts.tier : null, filter: f, extra, ignoreCounts: opts.ignoreCounts === true });
     },
     rollItem: (opts = {}) => rolls.rollItemId({ ...opts, ignoreStock: source.kind === 'garrison' }),
     /**
@@ -640,6 +640,7 @@ export function makeCtx(m, ps, source, hook, ev = null, preview = null) {
      */
     rollPool: (poolId, opts = {}) => rolls.rollPool(poolId, {
       shopLevel: ps.shop.level,
+      operatorPool: m.operatorPool(ps),
       // a shared-pool draw also takes the player's 自选 stock, its bonds read through the player's view (rollChess)
       extra: typeof ps.diyStockEntries === 'function' ? ps.diyStockEntries() : null, chessOf: (id) => gd.chess(id),
       ...opts,

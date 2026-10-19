@@ -418,6 +418,9 @@ export class Match {
     this.staticInactiveBonds = bans.staticOff;
     this.bannedChess = bans.banned;
     this.pool = new SharedPool(this.gd, { banned: bans.banned });
+    this.operatorPools = new Map(this.variant
+      ? this.order.map((ps) => [ps.playerId, new SharedPool(this.gd, { banned: bans.banned })])
+      : []);
     this.itemPool = new SharedItemPool(this.gd, () => this.order);
     // 自选编队 (0.2.0): each human's slotted DIY pieces get their own stock — none for one whose bonds are all off this
     // match (player/diy.js initDiyStock); no randomness is drawn here
@@ -484,6 +487,12 @@ export class Match {
     this.hiddenReached = false;
     this.outcome = null;
     this._turnToken = 0;
+  }
+
+  /** The chess stock available to this player. Equipment stock remains match-wide. */
+  operatorPool(ps) {
+    if (!this.variant) return this.pool;
+    return this.operatorPools.get(ps?.playerId) || this.pool;
   }
 }
 
