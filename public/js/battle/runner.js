@@ -366,6 +366,38 @@ export function createBattleRunner(deps) {
   /** Target tick of an entry on its clock. */
   const targetTick = (e, t) => Math.max(0, Math.floor((((t - e.t0) / 1000) * e.speed) / TICK + 1e-9));
 
+  /** Apply a server speed change to fields in the same combat phase generation. */
+  function onSpeed(msg) {
+    if (!msg || typeof msg.phase !== 'string' || !msg.phase
+      || !Number.isSafeInteger(msg.phaseInstance) || msg.phaseInstance < 1
+      || !Number.isFinite(msg.elapsed) || msg.elapsed < 0
+      || !Number.isFinite(msg.serverNow)
+      || !Number.isFinite(msg.speed) || msg.speed < 0.1 || msg.speed > 3
+      || Math.abs(msg.speed * 10 - Math.round(msg.speed * 10)) > 1e-7) return;
+    const receivedAt = clock();
+    let changed = false;
+    for (const e of new Set([...entries.values(), ...pending.values()])) {
+      if (e.phase !== msg.phase || e.phaseInstance !== msg.phaseInstance || !Number.isFinite(e.phaseOrigin)) continue;
+      if (msg.elapsed < e.phaseOrigin) continue;
+      const elapsed = msg.elapsed - e.phaseOrigin;
+      e.speed = msg.speed;
+      e.elapsed = elapsed;
+      if (e.t0 != null) e.t0 = receivedAt - (elapsed / e.speed) * 1000;
+      if (e === cur) {
+        try {
+          const field = store.get?.()?.match?.field;
+          if (field?.battleId === e.battleId) {
+            const updated = { ...field, speed: e.speed };
+            store.patch('match', { field: updated });
+            emit('field', updated);
+          }
+        } catch { /* field metadata is optional */ }
+      }
+      changed = true;
+    }
+    if (changed) { publishState(); schedule(); }
+  }
+
   /**
    * Step `n` ticks. `sliced` (a catch-up frame, a hidden-tab step): every EV_SLICE ticks the events drained so far go to
    * `e.slices` as { gt, ev } with that game time, for emitFrame / hold.
@@ -689,6 +721,11 @@ export function createBattleRunner(deps) {
     const existing = entries.get(msg.battleId) || prep;
     if (existing) {
       existing.seq = seq;
+      if (typeof msg.phase === 'string' && Number.isSafeInteger(msg.phaseInstance) && Number.isFinite(msg.phaseElapsed)) {
+        existing.phase = msg.phase;
+        existing.phaseInstance = msg.phaseInstance;
+        existing.phaseOrigin = msg.phaseElapsed - (Number(msg.elapsed) || 0);
+      }
       const was = existing.authoritative;
       existing.authoritative = !!msg.authoritative && !existing.failed && !existing.resultSent && csAccepted(existing.spec.cs, { loading: !existing.battle });
       existing.watch = !!msg.watch;
@@ -697,8 +734,10 @@ export function createBattleRunner(deps) {
       if (!existing.battle) {
         // still loading: it starts from the latest field clock
         existing.elapsed = Number(msg.elapsed) || 0;
+        existing.speed = speed;
       } else if (existing.authoritative && !was) {
         // handover (the partner left): continue from the field's clock and report from now on
+        existing.speed = speed;
         existing.t0 = clock() - ((Number(msg.elapsed) || 0) / speed) * 1000;
         existing.lastProgressAt = -Infinity;
         if (existing.battle.finished) { existing.done = false; finished(existing); }
@@ -725,6 +764,9 @@ export function createBattleRunner(deps) {
       authoritative: !!msg.authoritative && csAccepted(msg.spec.cs, { loading: true }), watch: !!msg.watch, own: !msg.watch, speed,
       members: (msg.spec.players || []).map((p) => p && p.playerId).filter(Boolean),
       t0: null, lastProgressAt: -Infinity, done: false, resultSent: false,
+      phase: typeof msg.phase === 'string' ? msg.phase : null,
+      phaseInstance: Number.isSafeInteger(msg.phaseInstance) ? msg.phaseInstance : null,
+      phaseOrigin: Number.isFinite(msg.phaseElapsed) ? msg.phaseElapsed - (Number(msg.elapsed) || 0) : null,
       result: null, delivery: null,
       // local-only combat accounting (battle/metrics.js), attached once the Battle exists; the 作战统计 panel reads
       // it on demand — never sent to the server
@@ -889,6 +931,7 @@ export function createBattleRunner(deps) {
   const offs = [];
   if (net && typeof net.on === 'function') {
     offs.push(net.on('b.start', (m) => { onStart(m).catch((err) => console.warn('[runner] b.start failed', err)); }));
+    offs.push(net.on('b.speed', onSpeed));
     offs.push(net.on('b.pool', onPool));
     offs.push(net.on('b.end', onEnd));
     // the session is back (reconnect / resume): results lost with the old socket go out again

@@ -571,9 +571,11 @@ export const S2C = [
   // m.unitStats { seq, round, units: [unitStatsEntry] } — the answer to g.unitStats (the requester only)
   'm.unitStats',
   // client-side combat (DESIGN §14): b.start { battleId, fieldId, kind, spec, authoritative, startAt, serverNow, elapsed,
-  // speed, watch? } · b.pool { hp, max, teamLp, acked: { [fieldId]: cumulative boss damage counted } } ·
+  // speed, phase, phaseInstance, phaseElapsed, watch? } · b.speed { phase, phaseInstance, elapsed, speed, serverNow }
+  // (phase elapsed is logical seconds; b.start elapsed remains field logical seconds) ·
+  // b.pool { hp, max, teamLp, acked: { [fieldId]: cumulative boss damage counted } } ·
   // b.end { battleId, fieldId, reason }
-  'b.start', 'b.pool', 'b.end',
+  'b.start', 'b.speed', 'b.pool', 'b.end',
   // a delegated bot layout rehearsal (DESIGN §14): b.rehearsal { taskId, playerId, cap, specs } — the host's browser
   // runs the candidate BattleSpecs off the page's main thread and answers with a C2S b.rehearsalResult ·
   // b.rehearsalCancel { taskId } — the server dropped that task (it timed out, the host changed, the prep ended):
