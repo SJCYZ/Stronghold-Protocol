@@ -565,6 +565,8 @@ describe('websocket lobby', () => {
     await expectError(c, { t: 'hello', name: '   ' }, ERR.BAD_MSG);
     await expectError(c, { t: 'hello', name: 'x', version: 999 }, ERR.BAD_MSG);
     await expectError(c, { t: 'hello', name: 'Old client', version: 1 }, ERR.BAD_MSG);
+    const oldProtocol = await expectError(c, { t: 'hello', name: 'Old v2', version: 2 }, ERR.BAD_MSG);
+    assert.match(oldProtocol.detail, /version mismatch: server 3/);
     await expectError(c, { t: 'hello', name: 'x'.repeat(13) }, ERR.BAD_MSG);
     // repeated hello updates the name, keeps identity
     const again = await c.hello('Renamed');
