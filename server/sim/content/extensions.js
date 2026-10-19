@@ -72,7 +72,7 @@ function scriptGuard(pluginId, limit) {
 import { KITS } from './kits/index.js';
 
 export const EXTENSIONS = Object.create(null);
-const enemies = new Map(), content = new Map(), meta = new Map(), owners = new Map();
+const enemies = new Map(), content = new Map(), meta = new Map(), lifeHandlers = new Map(), owners = new Map();
 let combatClockController = null;
 let sealed = false;
 const metaOwners = new WeakMap();
@@ -118,6 +118,23 @@ export function registerContent(plugin, module) {
   // Resolve registration now so conflicts fail composition, not the first match.
   module.registerMeta?.(Object.freeze({ register: (key, h) => registerMeta(plugin,key,h) }));
 }
+export function registerPostSettlement(plugin, handler) {
+  if (typeof handler !== 'function') fail('PLUGIN_SCRIPT_CONFLICT', 'post-settlement handler must be a function');
+  reserve('life', plugin, plugin.id);
+  lifeHandlers.set(plugin.id, handler);
+}
+export function runPostSettlement({ players, changeLife, revive, offerRescue }) {
+  const view = Object.freeze(players.map(player => Object.freeze({
+    playerId: player.playerId, isBot: player.isBot, alive: player.alive, lp: player.lp,
+    pendingElimination: player.pendingElimination, lifeRescueUsed: player.lifeRescueUsed,
+  })));
+  for (const [pluginId, handler] of lifeHandlers) handler({
+    players: view, changeLife, revive,
+    offerRescue: (request, callback) => offerRescue(pluginId, request, confirmation => callback({
+      rescuerId: confirmation.rescuerId, targetId: confirmation.targetId, changeLife, revive,
+    })),
+  });
+}
 export function registerCombatClock(plugin, onPhase) {
   if (typeof onPhase !== 'function') fail('PLUGIN_SCRIPT_CONFLICT', 'combat clock handler must be a function');
   reserve('clock', plugin, 'speed');
@@ -138,7 +155,7 @@ export function registerExtensionMeta(registry) {
 }
 export function resetExtensions() {
   for (const k of Object.keys(EXTENSIONS)) delete EXTENSIONS[k];
-  enemies.clear(); content.clear(); meta.clear(); owners.clear(); combatClockController = null; sealed = false;
+  enemies.clear(); content.clear(); meta.clear(); lifeHandlers.clear(); owners.clear(); combatClockController = null; sealed = false;
 }
 export function sealExtensions() { sealed = true; }
 export function extensionRegistrations() { return [...owners].map(([key,pluginId]) => ({key,pluginId})); }

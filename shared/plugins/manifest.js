@@ -138,6 +138,7 @@ export const PERMISSIONS = Object.freeze({
   'meta.code': ['script', 'trusted'],
   'mode.code': ['script', 'trusted'],
   'clock.speed': ['script', 'trusted'],
+  'match.life': ['script', 'trusted'],
   'ui.frame': ['ui'],
   'trusted.page': ['trusted'],
   'trusted.server': ['trusted'],
@@ -726,7 +727,7 @@ export function readPluginManifest(raw, ctx) {
     const need = ENTRIES[k].needs[cls];
     if (!permissions.includes(need)) list.problem('PLUGIN_PERMISSION_MISSING', `"entry.${k}" needs the permission "${need}"`, { at: ['entry', k], need, needs: [need] });
     used.add(need);
-    if (k === 'sim' || k === 'meta') used.add('mode.code');
+    if (k === 'sim' || k === 'meta') { used.add('mode.code'); used.add('match.life'); }
   }
   for (const p of permissions) if (!used.has(p)) list.warning('PLUGIN_PERMISSION_UNUSED', `the permission "${p}" is declared but nothing in the manifest uses it`, { at: ['permissions'], permission: p });
   if (!isLang && !Object.keys(parts).length && !Object.keys(entry).length) list.warning('PLUGIN_EMPTY', `carries nothing a ${cls} plugin is made of`, { class: cls });
