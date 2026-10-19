@@ -21,9 +21,17 @@ export class MatchPause {
     if (this.paused) return OK;
     const battlePhase = this.phase === PHASE.COMBAT || this.phase === PHASE.FINAL_ASSAULT || this.phase === PHASE.HIDDEN_CORE;
     if (!battlePhase || this._finalEnding || !this.fields.some((f) => f.live && !f.done)) return fail(ERR.WRONG_PHASE, 'no battle running');
+    const pauseAt = this.sched.now();
+    if (!this.sched.instant) {
+      const speed = this.gameSpeed;
+      this.runner?.flush?.(pauseAt, speed);
+      if (this._combatClock.phase) this.pacer?.flush?.(pauseAt, speed);
+    }
+    const stillBattlePhase = this.phase === PHASE.COMBAT || this.phase === PHASE.FINAL_ASSAULT || this.phase === PHASE.HIDDEN_CORE;
+    if (!stillBattlePhase || this._finalEnding || !this.fields.some((f) => f.live && !f.done)) return fail(ERR.WRONG_PHASE, 'no battle running');
     this.paused = true;
-    this._pausedAt = this.sched.now();
-    this._combatClock.setPaused(true);
+    this._pausedAt = pauseAt;
+    this._combatClock.setPaused(true, pauseAt);
     for (const f of this.fields) {
       if (!f.cc) continue;
       if (f.deadlineTimer) { this.cancel(f.deadlineTimer); f.deadlineTimer = null; f.rearmDeadline = true; }
@@ -37,11 +45,14 @@ export class MatchPause {
   /** End a solo pause: every clock and deadline moves on by the paused time (no-op when not paused). */
   _resume() {
     if (!this.paused) return;
-    const d = Math.max(0, this.sched.now() - this._pausedAt);
+    const resumedAt = this.sched.now();
+    const d = Math.max(0, resumedAt - this._pausedAt);
     this.paused = false;
     this._pausedAt = 0;
     this.pausedMs += d;
-    this._combatClock.setPaused(false);
+    this._combatClock.setPaused(false, resumedAt);
+    this.runner?.rebase?.(resumedAt);
+    this.pacer?.rebase?.(resumedAt);
     if (this.deadline) this.deadline += d;
     if (this.overtimeAt) this.overtimeAt += d;
     for (const f of this.fields) {

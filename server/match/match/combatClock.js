@@ -112,13 +112,12 @@ export class MatchCombatClock {
     return true;
   }
 
-  setPaused(on) {
+  setPaused(on, at = this.match.sched.now()) {
     if (!this.phase || this.frozen || this.paused === !!on) return;
-    const now = this.match.sched.now();
-    this.elapsedBase = this.elapsed(now);
-    this.anchorAt = now;
+    this.elapsedBase = this.elapsed(at);
+    this.anchorAt = at;
     this.paused = !!on;
-    this.pausedAt = this.paused ? now : 0;
+    this.pausedAt = this.paused ? at : 0;
     this._arm();
   }
 
