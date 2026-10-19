@@ -39,7 +39,7 @@ Solo FUNNY has 9 rounds (boss at R9); everything is read from `data/config.json 
 
 P1b plugin modes inherit an official mode and may override economy and other global configuration field by field in `GameData` (DESIGN §32.5). Original modes retain the same values and behavior; room mode selection belongs to P1c.
 
-When an explicitly selected, locked script plugin with `match.life` is active, players reaching 0 LP become pending elimination until settlement completes. The `life-rescue` plugin may open a fixed 20-second window only when a target is pending and a living human can pay its configured `lifeCost` while keeping at least 1 LP. Match authenticates the rescuer, performs payment and revival atomically, and revives each target at 1 LP at most once per match. A rescued player keeps the post-settlement lineup, items and inventory sources, funds, pending funds, remaining bounty, unclaimed rewards and personal choices; the next round refreshes the shop normally. At timeout, remaining pending targets use the ordinary elimination cleanup. Without the plugin or an eligible donor, the existing 3-second SETTLE path remains. The plugin is never an implicit room default; content locking and human consent still apply.
+房间明确选择并锁定带有 `match.life` 权限的脚本插件后，LP 降至 0 的玩家会在本轮结算完成前进入待淘汰状态。只有存在待救目标，且有真人玩家支付插件配置的 `lifeCost` 后仍能保留至少 1 LP 时，`life-rescue` 才开启固定 20 秒窗口。Match 认证救援者，并原子地完成扣款和复活；每个目标每局最多复活一次，复活后为 1 LP。被救玩家保留结算后的阵容、物品及库存来源、资金、待入账资金、剩余赏金、未领取奖励和个人选择；下一轮商店照常刷新。窗口到期后，未获救目标按原淘汰流程清理。未启用插件或没有合格救援者时，仍沿用原来的 3 秒 SETTLE 流程。该插件不会默认加入房间，仍须遵循内容锁定和玩家同意流程。
 
 ### 6.2 Player state (PlayerState.js) — authoritative per player
 
