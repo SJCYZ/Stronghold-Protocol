@@ -801,7 +801,10 @@ export class Lobby {
       if (!d || typeof d.code !== 'string' || d.code.length !== ROOM_CODE_LEN || this.rooms.has(d.code)) { stats.droppedSeats++; continue; }
       const mode = d.mode === 'solo' ? 'solo' : 'coop';
       const difficulty = typeof d.difficulty === 'string' && d.difficulty ? d.difficulty : 'NORMAL';
-      const room = new Room(d.code, mode, difficulty, now);
+      const capacity = mode === 'solo' ? 1 : Number.isInteger(d.capacity)
+        && d.capacity >= DEFAULT_ROOM_CAPACITY && d.capacity <= MAX_ROOM_CAPACITY
+        ? d.capacity : DEFAULT_ROOM_CAPACITY;
+      const room = new Room(d.code, mode, difficulty, now, capacity);
       room.ownerKey = typeof d.ownerKey === 'string' ? d.ownerKey : null;
       room.matchKey = typeof d.matchKey === 'string' ? d.matchKey : null;
       room.matchCount = Number.isInteger(d.matchCount) && d.matchCount >= 0 ? d.matchCount : 0;
@@ -822,7 +825,7 @@ export class Lobby {
       room.consoleEnabled = d.consoleEnabled === true;
       room.aiPicksLast = mode !== 'solo' && d.aiPicksLast === true;
       for (const s of Array.isArray(d.seats) ? d.seats : []) {
-        if (!s || typeof s.playerId !== 'string' || !Number.isInteger(s.seat) || s.seat < 0 || s.seat >= MAX_SEATS || room.seats[s.seat]) continue;
+        if (!s || typeof s.playerId !== 'string' || !Number.isInteger(s.seat) || s.seat < 0 || s.seat >= room.capacity || room.seats[s.seat]) continue;
         const isBot = !!s.isBot;
         const left = !!s.left;
         const session = isBot ? null : this.registry.byId(s.playerId);

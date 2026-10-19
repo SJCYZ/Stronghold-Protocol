@@ -1,7 +1,7 @@
 // i18n-ignore-file: API summaries keep configured content and bilingual HTTP errors.
 // Read-only public HTTP APIs. Project only documented fields, never session ids or private match data.
 import { createHash } from 'node:crypto';
-import { DIFFICULTY_NAMES, MAX_SEATS } from '../shared/constants.js';
+import { DIFFICULTY_NAMES, DEFAULT_ROOM_CAPACITY, MAX_ROOM_CAPACITY } from '../shared/constants.js';
 import { clientAddress, limitKeyOf, TokenBucket } from './net.js';
 
 export function roomStatus(room, serverNow) {
@@ -10,7 +10,9 @@ export function roomStatus(room, serverNow) {
   // Read the last published frame: querying must not calculate a new match view or expose unbroadcast progress.
   const pub = inMatch && room.matchCtx?.lastPublic ? JSON.parse(room.matchCtx.lastPublic) : null;
   const players = new Map((pub?.players || []).map((p) => [p.playerId, p]));
-  const capacity = room.mode === 'solo' ? 1 : MAX_SEATS;
+  const capacity = room.mode === 'solo' ? 1 : Number.isInteger(room.capacity)
+    && room.capacity >= DEFAULT_ROOM_CAPACITY && room.capacity <= MAX_ROOM_CAPACITY
+    ? room.capacity : DEFAULT_ROOM_CAPACITY;
   const seats = room.seats.slice(0, capacity).map((s) => {
     if (!s) return null;
     const p = players.get(s.playerId);

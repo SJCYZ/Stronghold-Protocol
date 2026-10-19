@@ -30,7 +30,7 @@ import { PersistenceWorker } from './workers/persistenceClient.js';
 import { countRecoveryRemoval, pruneRecovery, recoveryRemovalReason, resumeWindowMs } from './persistRecovery.js';
 import { performance } from 'node:perf_hooks';
 import { t } from '../shared/i18n.js';
-import { DIFFICULTIES, MAX_SEATS, ROOM_CODE_LEN } from '../shared/constants.js';
+import { DIFFICULTIES, DEFAULT_ROOM_CAPACITY, MAX_ROOM_CAPACITY, ROOM_CODE_LEN } from '../shared/constants.js';
 
 /** Document layout version (bumped when the shape below changes). */
 export const PERSIST_VERSION = 1;
@@ -83,6 +83,7 @@ export function roomDoc(room) {
     code: room.code,
     ...(room.content ? { content: room.content } : {}),
     mode: room.mode,
+    capacity: room.capacity,
     difficulty: room.difficulty,
     consoleEnabled: !!room.consoleEnabled, aiPicksLast: !!room.aiPicksLast,
     hostId: room.hostId || null,
@@ -233,18 +234,24 @@ export function restoreServer({ doc, registry, lobby, now = Date.now(), log = no
         const session = registry.byId(p.playerId);
         if (!session.roomCode || !roomDocs.has(session.roomCode)) session.roomCode = key;
       }
+      const mode = original.mode === 'solo' ? 'solo' : 'coop';
+      const capacity = mode === 'solo' ? 1 : Number.isInteger(original.capacity)
+        && original.capacity >= DEFAULT_ROOM_CAPACITY && original.capacity <= MAX_ROOM_CAPACITY
+        ? original.capacity : DEFAULT_ROOM_CAPACITY;
       const used = new Set(), ids = new Set();
       const normalized = seats.filter((s) => {
-        if (ids.has(s.playerId) || ids.size >= MAX_SEATS) return false;
+        if (ids.has(s.playerId) || ids.size >= capacity) return false;
         ids.add(s.playerId);
-        if (!Number.isInteger(s.seat) || s.seat < 0 || s.seat >= MAX_SEATS || used.has(s.seat)) {
-          s.seat = Array.from({ length: MAX_SEATS }, (_, i) => i).find((i) => !used.has(i));
+        if (!Number.isInteger(s.seat) || s.seat < 0 || s.seat >= capacity || used.has(s.seat)) {
+          const free = Array.from({ length: capacity }, (_, i) => i).find((i) => !used.has(i));
+          if (free == null) return false;
+          s.seat = free;
         }
         used.add(s.seat);
         if (cp && (!registry.byId(s.playerId) || departures(key).includes(s.playerId))) s.left = !s.isBot;
         return true;
       });
-      const record = { ...original, seats: normalized, mode: original.mode === 'solo' ? 'solo' : 'coop',
+      const record = { ...original, seats: normalized, mode, capacity,
         difficulty: DIFFICULTIES.includes(original.difficulty) ? original.difficulty : DIFFICULTIES.includes(cp?.difficulty) ? cp.difficulty : 'NORMAL' };
       const result = lobby.restoreRooms([record], { now, allowEmpty });
       stats.rooms += result.rooms;
