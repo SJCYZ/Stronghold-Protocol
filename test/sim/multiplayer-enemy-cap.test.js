@@ -53,5 +53,20 @@ test('large 20-player results remain bounded by the original frame budget', () =
   assert.equal(compact.perPlayer.p0.leaked.length, 400);
   assert.equal(compact.unspawned.length, 400);
   const fitted = fitResult(compact, { bossLike: true, battleId: 'large' });
-  assert.ok(Buffer.byteLength(JSON.stringify({ t: 'b.result', battleId: 'large', result: fitted, rid: 2147483647 })) <= RESULT_FRAME_BUDGET);
+  assert.ok(fitted && typeof fitted === 'object');
+  assert.ok(new TextEncoder().encode(JSON.stringify({ t: 'b.result', battleId: 'large', result: fitted, rid: 2147483647 })).byteLength <= RESULT_FRAME_BUDGET);
+});
+
+test('oversized non-boss result with 20 × 400 Unicode leaks is refused instead of sent over budget', () => {
+  const leaked = Array.from({ length: 400 }, () => ({ enemyKey: 'enemy_w', tag: '敌军🛡️', sourcePlayerId: 'p0' }));
+  const perPlayer = Object.fromEntries(makePlayers(20).map(({ playerId }) => [playerId, {
+    total: 400, killed: 0, leaked: leaked.map((item) => ({ ...item, sourcePlayerId: playerId })), perfect: false,
+  }]));
+  const compact = compactResult({ reason: 'timeout', time: 60, perPlayer });
+  const fitted = fitResult(compact, { bossLike: false, battleId: 'field-Unicode-联防' });
+  const wireBytes = fitted == null ? 0 : new TextEncoder().encode(JSON.stringify({
+    t: 'b.result', battleId: 'field-Unicode-联防', result: fitted, rid: 2147483647,
+  })).byteLength;
+  assert.ok(fitted === null, `non-boss result must be refused rather than sent (${wireBytes} UTF-8 bytes)`);
+  assert.ok(wireBytes === 0 || wireBytes <= RESULT_FRAME_BUDGET);
 });

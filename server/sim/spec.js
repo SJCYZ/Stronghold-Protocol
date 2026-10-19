@@ -453,24 +453,28 @@ export function compactResult(res) {
 
 /** Bytes a b.result frame may use (the socket's inbound limit is 64 KB; headroom for the envelope). */
 export const RESULT_FRAME_BUDGET = 60 * 1024;
+const resultFrameEncoder = new TextEncoder();
 
 /**
- * Keep a compact result under the frame budget (a larger frame closes the socket: the server would take the field over
- * at the very end). Never touches what settles LP / funds / layers of a normal field. In order: drop the per-unit
- * statistics, drop the leaks' `mods` (the server rebuilds them from the spec), and — boss fields only, whose leaks cost
- * team LP through b.progress — drop leak entries. Returns the (possibly) trimmed copy.
+ * Keep a compact result under the frame budget (a larger frame closes the socket). Never drops leaks from a normal
+ * field; if those entries still do not fit, return null so the Runner withholds the result and the server's existing
+ * takeover path takes the field over. In order: drop per-unit statistics, drop the
+ * leaks' `mods` (the server rebuilds them from the spec), and — boss fields only, whose leaks cost team LP through
+ * b.progress — drop leak entries. Every returned object is within the UTF-8 frame budget.
  * @param {object} result compactResult(...) output
  * @param {{ bossLike?: boolean, budget?: number, battleId?: string }} [o]
+ * @returns {object|null} bounded result, or null when no safe within-budget result can be produced
  */
 export function fitResult(result, { bossLike = false, budget = RESULT_FRAME_BUDGET, battleId = '' } = {}) {
-  const size = (r) => JSON.stringify({ t: 'b.result', battleId, result: r, rid: 2147483647 }).length;
+  const size = (r) => resultFrameEncoder.encode(JSON.stringify({ t: 'b.result', battleId, result: r, rid: 2147483647 })).byteLength;
   if (!result || typeof result !== 'object' || size(result) <= budget) return result;
   const r = { ...result, perPlayer: {} };
   for (const [pid, p] of Object.entries(result.perPlayer || {})) r.perPlayer[pid] = { ...p, unitStats: [] };
   if (size(r) <= budget) return r;
   for (const p of Object.values(r.perPlayer)) p.leaked = (p.leaked || []).map((l) => ({ ...l, mods: null }));
-  if (size(r) <= budget || !bossLike) return r;
+  if (size(r) <= budget) return r;
+  if (!bossLike) return null;
   for (const p of Object.values(r.perPlayer)) p.leaked = [];
   if (Array.isArray(r.unspawned)) r.unspawned = [];
-  return r;
+  return size(r) <= budget ? r : null;
 }
