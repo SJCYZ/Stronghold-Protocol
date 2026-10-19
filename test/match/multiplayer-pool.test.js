@@ -99,6 +99,40 @@ test('多人变体检查点按玩家保存和恢复干员池余额', () => {
   restored.dispose();
 });
 
+test('旧变体快照按各玩家的 poolCopies 重建库存，不复制全队聚合余额', () => {
+  const h = makeMatch({ seats: seats(5), fake: true });
+  const { m } = h;
+  const id = chessOfTier(6)[0];
+  const [a, b] = [h.ps('p_0'), h.ps('p_1')];
+  const cap = m.operatorPool(a).cap(id);
+  for (let i = 0; i < cap + 2; i++) a.acquireChess(id);
+  for (let i = 0; i < 2; i++) b.acquireChess(id);
+  const held = (ps) => [...ps.hand, ...ps.temp, ...ps.board.values()]
+    .filter((piece) => piece?.kind === 'chess' && m.gd.baseIdOf(piece.id) === id
+      && !ps.gd.chess(piece.id)?.isDiy)
+    .reduce((n, piece) => n + piece.poolCopies, 0);
+  const heldA = held(a), heldB = held(b);
+  assert.equal(heldA, cap + 2);
+  assert.equal(heldB, 2);
+
+  m.start();
+  const doc = snapshotMatch(m);
+  delete doc.operatorPoolLeft;
+  doc.poolLeft[id] = cap - heldA - heldB;
+  assert.equal(doc.poolLeft[id], -4, '旧字段只记录全队聚合余额');
+  const restored = makeMatch({ seats: seats(5), fake: true }).m;
+  assert.equal(restoreMatch(restored, doc, { createRngFromState }), true);
+
+  const restoredA = restored.operatorPool(restored.players.get('p_0'));
+  const restoredB = restored.operatorPool(restored.players.get('p_1'));
+  assert.equal(restoredA.entries.get(id).left, cap - heldA, '超领债务随归属玩家保留');
+  assert.equal(restoredB.entries.get(id).left, cap - heldB, '其他玩家仍保有自己的余额');
+  assert.equal(restoredA.entries.get(id).left + heldA, cap);
+  assert.equal(restoredB.entries.get(id).left + heldB, cap);
+  h.m.dispose();
+  restored.dispose();
+});
+
 test('重抽开局配置后仍为每位变体玩家重建独立干员池', () => {
   const h = makeMatch({ seats: seats(5), fake: true });
   const { m } = h;

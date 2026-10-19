@@ -371,17 +371,6 @@ export function restoreMatch(m, doc, { createRngFromState, log = console, bestEf
       if (e) e.left = Math.min(e.cap, Math.trunc(Number.isFinite(balance) ? balance : 0));
     }
   }
-  if (m.variant) {
-    for (const [playerId, pool] of m.operatorPools) {
-      const balances = doc.operatorPoolLeft?.[playerId] || doc.poolLeft;
-      if (!balances || typeof balances !== 'object') continue;
-      for (const [id, left] of Object.entries(balances)) {
-        const e = pool.entries.get(id);
-        const balance = Number(left);
-        if (e) e.left = Math.min(e.cap, Math.trunc(Number.isFinite(balance) ? balance : 0));
-      }
-    }
-  }
   m.itemPool.debt.clear();
   for (const [id, n] of Object.entries(doc.itemDebt || {})) {
     if (Number.isSafeInteger(n) && n > 0 && m.itemPool.cap(id) != null) m.itemPool.debt.set(id, n);
@@ -447,6 +436,30 @@ export function restoreMatch(m, doc, { createRngFromState, log = console, bestEf
     ps._lastPriv = null;
     if (bestEffort) repairPlayer(ps, log);
     ps.recompute();
+  }
+  if (m.variant) {
+    for (const [playerId, pool] of m.operatorPools) {
+      const balances = doc.operatorPoolLeft?.[playerId];
+      if (balances && typeof balances === 'object') {
+        for (const [id, left] of Object.entries(balances)) {
+          const e = pool.entries.get(id);
+          const balance = Number(left);
+          if (e) e.left = Math.min(e.cap, Math.trunc(Number.isFinite(balance) ? balance : 0));
+        }
+        continue;
+      }
+      // Legacy variant checkpoints only have an aggregate poolLeft. Recover each owner's own ledger from the saved
+      // pieces instead of cloning that team-wide balance into every player's pool.
+      const ps = m.players.get(playerId);
+      const held = new Map();
+      for (const piece of [...ps.hand, ...ps.temp, ...ps.board.values()]) {
+        if (!piece || piece.kind !== 'chess' || !Number.isInteger(piece.poolCopies)) continue;
+        if (ps.gd.chess(piece.id)?.isDiy) continue;
+        const base = m.gd.baseIdOf(piece.id);
+        held.set(base, (held.get(base) || 0) + piece.poolCopies);
+      }
+      for (const [id, entry] of pool.entries) entry.left = entry.cap - (held.get(id) || 0);
+    }
   }
   m.order = [...m.players.values()].sort((a, b) => a.seat - b.seat);
   if (bestEffort) {
