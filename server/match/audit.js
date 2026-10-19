@@ -331,10 +331,18 @@ export function attachAudit(m, { invariants = true, limit = 200 } = {}) {
     });
     return res;
   });
-  wrap(m, 'startSpTurn', function (orig) {
-    const res = orig();
+  wrap(m, 'startSpTurn', function (orig, ...args) {
+    const res = orig(...args);
     check('sp turn', () => {
       if (m.phase !== PHASE.SP_DRAFT || !m.sp) return;
+      if (m.sp.mode === 'squad') {
+        for (const s of m.sp.squads) {
+          if (s.idx >= s.order.length || !m.squadMembers(s.squadId, { aliveOnly: true }).length) continue;
+          if (s.untimed) { if (s.turnDeadline) fail(`${s.squadId}: untimed 机变 has a timer`); }
+          else if (!(s.turnDeadline > m.sched.now())) fail(`${s.squadId}: missing 机变 turn deadline`);
+        }
+        return;
+      }
       const s = m.sp;
       if (s.idx >= s.order.length) return;
       if (m.soloUntimed) { if (m.deadline) fail('untimed 机变 is timed'); } else expectDeadline(s.idx === 0 ? gd.timer('spFirst') : gd.timer('spTurn'), `SP_DRAFT turn ${s.idx}`);
@@ -344,6 +352,20 @@ export function attachAudit(m, { invariants = true, limit = 200 } = {}) {
   wrap(m, 'finishSpDraft', function (orig) {
     const s = m.sp;
     if (m.phase === PHASE.SP_DRAFT && s) check('sp draft', () => {
+      if (s.mode === 'squad') {
+        for (const x of s.squads) {
+          if (x.cards.length > 6) fail(`${x.squadId}: ${x.cards.length} 机变 cards (max 6)`);
+          const alive = m.squadMembers(x.squadId, { aliveOnly: true }).map((p) => p.playerId);
+          for (const pid of alive) {
+            const idx = x.picks[pid];
+            if (idx == null && x.order.indexOf(pid) < x.idx) fail(`${pid} advanced without a card`);
+            else if (idx != null && x.taken[idx] !== pid) fail(`${pid} picked card ${idx} not held by its squad`);
+          }
+          const holders = Object.values(x.taken);
+          if (new Set(holders).size !== holders.length) fail(`${x.squadId}: a player took two 机变 cards`);
+        }
+        return;
+      }
       const alive = m.alivePlayers().map((p) => p.playerId);
       const want = m.isSolo ? 3 : 6;
       if (s.cards.length > want) fail(`${s.cards.length} 机变 cards (max ${want})`);

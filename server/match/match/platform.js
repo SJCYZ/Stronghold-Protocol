@@ -222,7 +222,7 @@ export class MatchPlatform {
       this.finish({ victory: false, reason: 'eliminated' });
       return;
     }
-    if (phase === PHASE.SP_DRAFT && this.sp && this.spTurn() === ps.playerId) this.startSpTurn();
+    if (phase === PHASE.SP_DRAFT && this.sp && this.spTurn(ps) === ps.playerId) this.startSpTurn(this.sp.mode === 'squad' ? this.squadOf(ps) : null);
     else if (phase === PHASE.PREP) this.maybeEndPrep();
   }
 
@@ -235,6 +235,8 @@ export class MatchPlatform {
     this._cancelRehearsal();
     for (const h of this._timers) { try { this.sched.clearTimeout(h); } catch { /* ignore */ } }
     this._timers.clear();
+    this._spTimers?.clear();
+    this._spTimerTokens?.clear();
     if (this._pubTimer) { try { this.sched.clearTimeout(this._pubTimer); } catch { /* ignore */ } this._pubTimer = null; }
     if (this.ownsScheduler) this.sched.dispose();
   }

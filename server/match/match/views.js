@@ -33,7 +33,28 @@ function cultivationInfo(lo) {
 }
 
 export class MatchViews {
-  squadOf(playerId) { return this._squadByPlayer.get(playerId) || null; }
+  squadOf(ps) { const playerId = typeof ps === 'string' ? ps : ps?.playerId; return this._squadByPlayer.get(playerId) || null; }
+
+  squadMembers(ps, { aliveOnly = false } = {}) {
+    const squadId = typeof ps === 'string' && ps.startsWith('squad_') ? ps : this.squadOf(ps);
+    const squad = this.squads.find((s) => s.squadId === squadId);
+    if (!squad) return [];
+    return squad.playerIds.map((id) => this.players.get(id)).filter((p) => p && (!aliveOnly || p.alive));
+  }
+
+  privateSpViewFor(ps) {
+    const draft = this.sp;
+    if (this.phase !== PHASE.SP_DRAFT || !draft) return null;
+    if (draft.mode !== 'squad') return null;
+    const squad = draft.squads.find((s) => s.squadId === this.squadOf(ps));
+    if (!squad) return null;
+    return {
+      mode: 'squad', squadId: squad.squadId, family: squad.family, name: squad.name, desc: squad.desc, eventId: squad.eventId,
+      cards: squad.cards.map((c) => ({ ...cardView(c), soldOut: c.kind === 'item' && !this.itemPool.canGain(c.id) })),
+      order: squad.order.slice(), turn: squad.order[squad.idx] ?? null, picks: { ...squad.picks },
+      untimed: !!squad.untimed, turnDeadline: squad.turnDeadline || 0,
+    };
+  }
 
   statusOf(ps) {
     if (ps.left) return 'left';
@@ -44,8 +65,8 @@ export class MatchViews {
         if (this.draft && this.draft.picks[ps.playerId]) return 'ready';
         return this.draft && this.draftTurn() === ps.playerId ? 'deciding' : 'acting';
       case PHASE.SP_DRAFT:
-        if (this.sp && this.sp.picks[ps.playerId] != null) return 'ready';
-        return this.sp && this.spTurn() === ps.playerId ? 'deciding' : 'acting';
+        if (this.sp && (this.sp.mode === 'squad' ? this._spSquad(ps)?.picks[ps.playerId] : this.sp.picks[ps.playerId]) != null) return 'ready';
+        return this.sp && this.spTurn(ps) === ps.playerId ? 'deciding' : 'acting';
       case PHASE.PREP: return ps.ready ? 'ready' : 'acting';
       case PHASE.COMBAT: case PHASE.FINAL_ASSAULT: case PHASE.HIDDEN_CORE: {
         const f = this.fields.find((x) => x.players.includes(ps.playerId));
@@ -146,11 +167,23 @@ export class MatchViews {
     }
     if (this.phase === PHASE.SP_DRAFT && this.sp) {
       const s = this.sp;
-      v.sp = {
-        family: s.family, name: s.name, desc: s.desc, eventId: s.eventId,
-        cards: s.cards.map(c => ({ ...cardView(c), soldOut: c.kind === 'item' && !this.itemPool.canGain(c.id) })), order: s.order.slice(),
-        turn: this.spTurn(), picks: { ...s.picks }, taken: { ...s.taken }, untimed: !!s.untimed,
-      };
+      if (s.mode === 'squad') {
+        v.sp = {
+          mode: 'squad',
+          squads: s.squads.map((x) => ({
+            squadId: x.squadId, order: x.order.slice(), turn: x.order[x.idx] ?? null, picks: { ...x.picks },
+            untimed: !!x.untimed, turnDeadline: x.turnDeadline || 0,
+            progress: { picked: Object.keys(x.picks).length, total: x.order.length, complete: this._spSquadDone(x) },
+          })),
+          progress: { complete: s.squads.filter((x) => this._spSquadDone(x)).length, total: s.squads.length },
+        };
+      } else {
+        v.sp = {
+          family: s.family, name: s.name, desc: s.desc, eventId: s.eventId,
+          cards: s.cards.map(c => ({ ...cardView(c), soldOut: c.kind === 'item' && !this.itemPool.canGain(c.id) })), order: s.order.slice(),
+          turn: this.spTurn(), picks: { ...s.picks }, taken: { ...s.taken }, untimed: !!s.untimed,
+        };
+      }
     }
     if (this.phase === PHASE.UNITE && this.unitePlan) v.unite = { helpers: this.unitePlan.helpers.map((p) => p.playerId), leakers: this.unitePlan.leakers.map((p) => p.playerId) };
     // SETTLE after a 联防: its outcome as data (settle.js uniteResultView; GitHub #235, PR #112) — { through, helpers,

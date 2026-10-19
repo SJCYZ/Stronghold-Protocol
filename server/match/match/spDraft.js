@@ -16,106 +16,196 @@ const PERSONAL_OFFER_SIZE = 3;
 
 export class MatchSpDraft {
   enterSpDraft() {
-    const draft = generateDraft(this.gd, this.rngDraft, this.round, { stageId: this.stageId, bondAvailable: (bondId) => this.bondLive(bondId), itemAvailable: id => this.itemPool.canGain(id) });
     const alive = this.alivePlayers();
-    if (!draft || !alive.length) { this.enterPrep(); return; }
+    if (!alive.length) { this.enterPrep(); return; }
     this.phase = PHASE.SP_DRAFT;
+    const untimed = this.soloUntimed;
+    if (this.variant) {
+      const squads = this.squads.map((group) => {
+        const draft = generateDraft(this.gd, this.rngDraft, this.round, { stageId: this.stageId, bondAvailable: (bondId) => this.bondLive(bondId), itemAvailable: id => this.itemPool.canGain(id) });
+        if (!draft) return null;
+        let order = group.playerIds.filter((id) => this.players.get(id)?.alive);
+        if (!this.isSolo) this.rngDraft.shuffle(order);
+        order = this.humansFirst(order);
+        return { squadId: group.squadId, ...draft, order, idx: 0, picks: {}, taken: {}, untimed, turnDeadline: 0 };
+      }).filter(Boolean);
+      if (!squads.length) { this.enterPrep(); return; }
+      this.sp = { mode: 'squad', squads };
+      this.setDeadline(0);
+      this._spTimers = new Map();
+      this._spTimerTokens = new Map();
+      this.startSpTurn();
+      this.markPublic();
+      return;
+    }
+    const draft = generateDraft(this.gd, this.rngDraft, this.round, { stageId: this.stageId, bondAvailable: (bondId) => this.bondLive(bondId), itemAvailable: id => this.itemPool.canGain(id) });
+    if (!draft) { this.enterPrep(); return; }
     let order = alive.map((p) => p.playerId);
     if (!this.isSolo) this.rngDraft.shuffle(order);
-    // 「AI 队友最后选择」 (GitHub #338): humans before AI seats, after the same shuffle (MatchPhases.humansFirst)
     order = this.humansFirst(order);
-    // untimed: solo and any single-human match (soloUntimed); the co-op order / 6 cards stay
-    const untimed = this.soloUntimed;
     this.sp = { ...draft, order, idx: 0, picks: {}, taken: {}, untimed, turnDeadline: 0 };
     this.setDeadline(0);
     this.startSpTurn();
     this.markPublic();
   }
 
-  spTurn() {
+  spTurn(ps = null) {
+    if (this.sp?.mode === 'squad') {
+      const squadId = ps ? this.squadOf(ps) : null;
+      const squads = squadId ? this.sp.squads.filter((s) => s.squadId === squadId) : this.sp.squads;
+      for (const s of squads) if (s && s.order[s.idx]) return s.order[s.idx];
+      return null;
+    }
     const s = this.sp;
     if (!s) return null;
     return s.order[s.idx] ?? null;
   }
 
-  spCardAvailable(card) { return !!card && this.sp?.taken[card.idx] == null && (card.kind !== 'item' || this.itemPool.canGain(card.id)); }
+  spCardAvailable(card) { return !!card && this.sp?.taken?.[card.idx] == null && (card.kind !== 'item' || this.itemPool.canGain(card.id)); }
 
-  startSpTurn() {
-    const s = this.sp;
-    this.cancel(this._turnTimer);
-    this._turnTimer = null;
-    while (s.idx < s.order.length) { // loop-cap: draft order
-      const ps = this.players.get(s.order[s.idx]);
-      if (ps && ps.alive && s.picks[ps.playerId] == null) break;
-      s.idx++;
+  _spSquad(ps) {
+    const id = this.squadOf(ps);
+    return this.sp?.mode === 'squad' ? this.sp.squads.find((s) => s.squadId === id) || null : this.sp;
+  }
+
+  _spSquadDone(s) {
+    return !this.squadMembers(s.squadId, { aliveOnly: true }).length || s.idx >= s.order.length;
+  }
+
+  startSpTurn(squadId = null) {
+    if (this.sp?.mode !== 'squad') {
+      const s = this.sp;
+      if (!s) return;
+      this.cancel(this._turnTimer);
+      this._turnTimer = null;
+      while (s.idx < s.order.length) {
+        const ps = this.players.get(s.order[s.idx]);
+        if (ps && ps.alive && s.picks[ps.playerId] == null) break;
+        s.idx++;
+      }
+      const available = s.cards.filter(c => this.spCardAvailable(c)).map(c => c.idx);
+      if (s.idx >= s.order.length || !available.length) { this.setDeadline(0); this.later(0, () => this.finishSpDraft()); return; }
+      const token = ++this._turnToken;
+      if (!s.untimed) {
+        const secs = s.idx === 0 ? this.gd.timer('spFirst') : this.gd.timer('spTurn');
+        this.setDeadline(secs, () => {
+          if (this.phase !== PHASE.SP_DRAFT || token !== this._turnToken) return;
+          const ps = this.players.get(this.spTurn());
+          if (!ps) return;
+          const avail = s.cards.filter(c => this.spCardAvailable(c)).map(c => c.idx);
+          if (!avail.length) { this.finishSpDraft(); return; }
+          this._applyCard(ps, avail[Math.floor(this.rngDraft() * avail.length)]);
+        });
+        s.turnDeadline = this.deadline;
+      } else this.setDeadline(0);
+      const cur = this.players.get(this.spTurn());
+      if (cur?.botControlled) this.scheduleSpBot();
+      this.markPublic();
+      return;
     }
-    const available = s.cards.filter(c => this.spCardAvailable(c)).map(c => c.idx);
-    if (s.idx >= s.order.length || !available.length) { this.setDeadline(0); this.later(0, () => this.finishSpDraft()); return; }
-    const token = ++this._turnToken;
-    if (!s.untimed) {
-      const first = s.idx === 0;
-      const secs = first ? this.gd.timer('spFirst') : this.gd.timer('spTurn');
-      this.setDeadline(secs, () => {
-        if (this.phase !== PHASE.SP_DRAFT || token !== this._turnToken) return;
-        const ps = this.players.get(this.spTurn());
-        if (!ps) return;
-        const avail = s.cards.filter(c => this.spCardAvailable(c)).map(c => c.idx);
-        if (!avail.length) { this.finishSpDraft(); return; }
-        this._applyCard(ps, avail[Math.floor(this.rngDraft() * avail.length)]);
-      });
-      s.turnDeadline = this.deadline;
-    } else {
-      this.setDeadline(0);
-    }
-    const cur = this.players.get(this.spTurn());
-    if (cur && cur.botControlled) this.scheduleSpBot();
+    this._spTimers ||= new Map();
+    this._spTimerTokens ||= new Map();
+    const squads = squadId ? this.sp.squads.filter((s) => s.squadId === squadId) : this.sp.squads;
+    for (const s of squads) this._startSpSquadTurn(s);
+    if (this.sp.squads.every((s) => this._spSquadDone(s))) this.later(0, () => this.finishSpDraft());
     this.markPublic();
   }
 
-  scheduleSpBot() {
+  _startSpSquadTurn(s) {
+    const old = this._spTimers?.get(s.squadId);
+    if (old) this.cancel(old);
+    this._spTimers?.delete(s.squadId);
+    while (s.idx < s.order.length) {
+      const ps = this.players.get(s.order[s.idx]);
+      if (ps?.alive && s.picks[ps.playerId] == null) break;
+      s.idx++;
+    }
+    const available = s.cards.filter((c) => s.taken[c.idx] == null && (c.kind !== 'item' || this.itemPool.canGain(c.id))).map((c) => c.idx);
+    if (s.idx >= s.order.length || this._spSquadDone(s)) { s.turnDeadline = 0; return; }
+    if (!available.length) { s.idx = s.order.length; s.turnDeadline = 0; return; }
+    const token = (this._spTimerTokens.get(s.squadId) || 0) + 1;
+    this._spTimerTokens.set(s.squadId, token);
+    if (!s.untimed) {
+      const secs = s.idx === 0 ? this.gd.timer('spFirst') : this.gd.timer('spTurn');
+      s.turnDeadline = this.sched.now() + this.scaled(secs * 1000);
+      const timer = this.later(this.scaled(secs * 1000), () => {
+        this._spTimers.delete(s.squadId);
+        if (this.phase !== PHASE.SP_DRAFT || this._spTimerTokens.get(s.squadId) !== token) return;
+        const ps = this.players.get(s.order[s.idx]);
+        const avail = s.cards.filter((c) => s.taken[c.idx] == null && (c.kind !== 'item' || this.itemPool.canGain(c.id))).map((c) => c.idx);
+        if (!ps || !avail.length) { this.startSpTurn(s.squadId); return; }
+        this._applyCard(ps, avail[Math.floor(this.rngDraft() * avail.length)], s);
+      });
+      this._spTimers.set(s.squadId, timer);
+    } else s.turnDeadline = 0;
+    const cur = this.players.get(s.order[s.idx]);
+    if (cur?.botControlled) this.scheduleSpBot(s);
+  }
+
+  scheduleSpBot(squad = null) {
+    if (this.sp?.mode === 'squad') {
+      const s = squad || this._spSquad(this.players.get(this.spTurn()));
+      if (!s) return;
+      const token = this._spTimerTokens.get(s.squadId) || 0;
+      this.later(this.scaled(DELAYS.BOT_ACTION), () => {
+        if (this.phase !== PHASE.SP_DRAFT || this._spTimerTokens.get(s.squadId) !== token || this._spSquadDone(s)) return;
+        const ps = this.players.get(s.order[s.idx]);
+        if (!ps?.botControlled) return;
+        const avail = s.cards.filter((c) => s.taken[c.idx] == null && (c.kind !== 'item' || this.itemPool.canGain(c.id))).map((c) => c.idx);
+        if (avail.length) this._applyCard(ps, botPickCard(this, ps, s.cards, avail), s);
+      });
+      return;
+    }
     const token = this._turnToken;
     this.later(this.scaled(DELAYS.BOT_ACTION), () => {
       if (this.phase !== PHASE.SP_DRAFT || token !== this._turnToken || !this.sp) return;
       const ps = this.players.get(this.spTurn());
       if (!ps || !ps.botControlled) return;
       const avail = this.sp.cards.filter(c => this.spCardAvailable(c)).map(c => c.idx);
-      if (!avail.length) return;
-      this._applyCard(ps, botPickCard(this, ps, this.sp.cards, avail));
+      if (avail.length) this._applyCard(ps, botPickCard(this, ps, this.sp.cards, avail));
     });
   }
 
   pickCard(ps, idx) {
     if (this.phase !== PHASE.SP_DRAFT || !this.sp) return fail(ERR.WRONG_PHASE);
     if (!ps.alive) return fail(ERR.ELIMINATED);
-    if (this.sp.picks[ps.playerId] != null) return fail(ERR.ALREADY);
-    if (this.spTurn() !== ps.playerId) return fail(ERR.NOT_YOUR_TURN);
-    if (!Number.isInteger(idx) || idx < 0 || idx >= this.sp.cards.length) return fail(ERR.BAD_TARGET);
-    if (!this.spCardAvailable(this.sp.cards[idx])) return fail(ERR.SOLD_OUT);
-    this._applyCard(ps, idx);
+    const s = this._spSquad(ps);
+    if (s.picks[ps.playerId] != null) return fail(ERR.ALREADY);
+    if (this.spTurn(ps) !== ps.playerId) return fail(ERR.NOT_YOUR_TURN);
+    if (!Number.isInteger(idx) || idx < 0 || idx >= s.cards.length) return fail(ERR.BAD_TARGET);
+    if (this.sp.mode === 'squad') {
+      if (!s.cards[idx] || s.taken[idx] != null || (s.cards[idx].kind === 'item' && !this.itemPool.canGain(s.cards[idx].id))) return fail(ERR.SOLD_OUT);
+    } else if (!this.spCardAvailable(s.cards[idx])) return fail(ERR.SOLD_OUT);
+    this._applyCard(ps, idx, s);
     return OK;
   }
 
-  _applyCard(ps, idx) {
-    const s = this.sp;
-    if (!s || s.picks[ps.playerId] != null || !this.spCardAvailable(s.cards[idx])) return;
+  _applyCard(ps, idx, squad = null) {
+    const s = squad || this._spSquad(ps);
+    if (!s || s.picks[ps.playerId] != null) return;
     const card = s.cards[idx];
-    if (!card) return;
+    if (!card || (this.sp.mode === 'squad' ? s.taken[idx] != null : !this.spCardAvailable(card))) return;
     s.picks[ps.playerId] = idx;
     s.taken[idx] = ps.playerId;
     try { applyCard(this, ps, card); } catch (e) { this.reportError(`applyCard ${card.id}`, e); }
-    this.markPrivate(ps);
+    const members = this.sp.mode === 'squad' ? this.squadMembers(ps, { aliveOnly: false }) : [ps];
+    for (const p of members) this.markPrivate(p);
     this.markPublic();
-    onPickCard(this, ps, card); // AI bots say "思考" when they take a bounty (enabled by default; SP_BOT_EMOTES=0 silences it)
-    this.startSpTurn();
+    onPickCard(this, ps, card);
+    this.startSpTurn(this.sp.mode === 'squad' ? s.squadId : null);
   }
 
   finishSpDraft() {
     if (this.phase !== PHASE.SP_DRAFT) return;
+    if (this._spTimers) {
+      for (const timer of this._spTimers.values()) this.cancel(timer);
+      this._spTimers.clear();
+    }
+    this._spTimerTokens?.clear();
     this.cancel(this._turnTimer);
     this._turnTimer = null;
     this.enterPrep();
   }
-
   /**
    * 教鞭 (content/items/meta.js, ctx.offerBountyChoice): the Art opens a PERSONAL choice (act2autochess choice event
    * `hunter_band_1`, choiceType PERSONAL_CHOOSE) between up to three of `candidates` — drawn once from the meta rng, kept in

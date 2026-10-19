@@ -567,7 +567,36 @@ function repairPhase(m, log) {
   }
   if (m.phase === PHASE.SP_DRAFT) {
     const s = m.sp;
-    if (!s || !Array.isArray(s.cards) || !Array.isArray(s.order) || !s.picks || !s.taken) {
+    if (s?.mode === 'squad' && Array.isArray(s.squads)) {
+      const valid = m.squads.every((group) => {
+        const draft = s.squads.find((x) => x?.squadId === group.squadId);
+        return draft && Array.isArray(draft.cards) && draft.cards.length > 0 && Array.isArray(draft.order)
+          && draft.picks && typeof draft.picks === 'object' && draft.taken && typeof draft.taken === 'object'
+          && draft.cards.every((c) => c && typeof c.id === 'string');
+      });
+      if (!valid) {
+        warn('unusable squad special draft skipped; saved choices and economy retained');
+        m.sp = null;
+        m.phase = PHASE.PREP;
+      } else {
+        s.squads = m.squads.map((group) => {
+          const draft = s.squads.find((x) => x.squadId === group.squadId);
+          const allowed = new Set(group.playerIds);
+          draft.order = [...new Set(draft.order.filter((id) => ids.has(id) && allowed.has(id)))];
+          draft.idx = Number.isInteger(draft.idx) && draft.idx >= 0 ? Math.min(draft.idx, draft.order.length) : 0;
+          const picks = {};
+          const taken = {};
+          for (const [id, index] of Object.entries(draft.picks)) {
+            if (!draft.order.includes(id) || !Number.isInteger(index) || index < 0 || index >= draft.cards.length || taken[index] != null) continue;
+            picks[id] = index;
+            taken[index] = id;
+          }
+          draft.picks = picks;
+          draft.taken = taken;
+          return draft;
+        });
+      }
+    } else if (!s || !Array.isArray(s.cards) || !Array.isArray(s.order) || !s.picks || !s.taken) {
       warn('unusable special draft skipped; saved choices and economy retained');
       m.sp = null;
       m.phase = PHASE.PREP;
@@ -644,6 +673,7 @@ export function matchState(m) {
   for (const k of MATCH_FIELDS) match[k] = encodeState(m[k]);
   // the draft turn clocks are absolute times of the *old* run: the restored match re-arms them from its own clock
   for (const k of ['draft', 'sp']) if (match[k] && typeof match[k] === 'object') delete match[k].turnDeadline;
+  if (match.sp?.mode === 'squad') for (const squad of match.sp.squads || []) delete squad.turnDeadline;
   const pool = {};
   for (const [id, e] of m.pool.entries) pool[id] = e.left;
   const operatorPools = {};

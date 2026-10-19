@@ -422,7 +422,9 @@ export function cardView(c) {
  * @param {import('./PlayerState.js').PlayerState} ps
  */
 export function applyCard(m, ps, card) {
-  const targets = card.kind === 'tactic' && card.team ? [ps, ...m.alivePlayers().filter((p) => p !== ps)] : [ps];
+  const targets = card.kind === 'tactic' && card.team
+    ? (m.variant && typeof m.squadMembers === 'function' ? m.squadMembers(ps, { aliveOnly: true }) : [ps, ...m.alivePlayers().filter((p) => p !== ps)])
+    : [ps];
   for (const p of targets) {
     const ev = { card: { ...card }, family: card.family, picker: ps.playerId, forTeammate: p !== ps };
     const handled = m.dispatcher.runKey(p, `choice:${card.id}`, 'onChoicePick', { kind: 'choice', card }, ev);

@@ -129,6 +129,8 @@ export class MatchSettle {
     this.cancel(this._turnTimer);
     for (const h of this._timers) { try { this.sched.clearTimeout(h); } catch { /* ignore */ } }
     this._timers.clear();
+    this._spTimers?.clear();
+    this._spTimerTokens?.clear();
     this.phase = PHASE.RESULT;
     this.deadline = 0;
     for (const f of this.fields) f.live = false;
