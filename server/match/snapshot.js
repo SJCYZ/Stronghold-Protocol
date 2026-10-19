@@ -11,8 +11,11 @@ import { freezeSkins } from '../../shared/skins.js';
 // SAFE PHASES. A checkpoint is taken while the match is in INFO_CHECK, BAND_DRAFT, SP_DRAFT, ROUND_START or PREP.
 // Those are the phases in which no battle object, no pacer and no field is alive (fields/watchers/teamLp/bossPool are
 // empty), so the whole state is serializable. The multiplayer variant's UNITE phase is a narrow exception: only its
-// state-only round plan/results are captured, then the current unite field is rebuilt on restore. If a match is
-// interrupted in COMBAT / legacy UNITE / SETTLE / FINAL_ASSAULT / HIDDEN_CORE, the *last* safe checkpoint is kept.
+// state-only round plan/results are captured, then the current unite field is rebuilt from its start with the full
+// per-round time cap (at most 150 real seconds). Battle/Runner progress is not serialized, so this is not an exact
+// in-field continuation; applying the old remaining deadline to a restarted wave would make that wave unfairly short.
+// If a match is interrupted in COMBAT / legacy UNITE / SETTLE / FINAL_ASSAULT / HIDDEN_CORE, the *last* safe
+// checkpoint is kept.
 //
 // ON RESTORE the clocks restart from the *remaining* time the checkpoint recorded (the match was frozen while the
 // server was down), the prep gets at least MIN_RECOVER_PREP_SEC, and a draft turn that was current starts over with a

@@ -33,7 +33,14 @@ function nextUniteLeaks(plan, result) {
 }
 
 function uniteLeakKey(leak) {
-  return `${leak.sourcePlayerId || ''}\0${leak.enemyKey || ''}\0${leak.tag || ''}`;
+  const mods = stableLeakValue(leak.mods || {});
+  return `${leak.sourcePlayerId || ''}\0${leak.enemyKey || ''}\0${leak.tag || ''}\0${mods}`;
+}
+
+function stableLeakValue(value) {
+  if (Array.isArray(value)) return `[${value.map(stableLeakValue).join(',')}]`;
+  if (value && typeof value === 'object') return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableLeakValue(value[key])}`).join(',')}}`;
+  return JSON.stringify(value);
 }
 
 function combineUniteResults(results) {
@@ -52,7 +59,11 @@ function combineUniteResults(results) {
   }
   for (const [id, pp] of Object.entries(last.perPlayer || {})) perPlayer[id] ||= {};
   for (const [id, pp] of Object.entries(perPlayer)) pp.leaked = last.perPlayer?.[id]?.leaked || [];
-  return { ...last, perPlayer, unspawned: last.unspawned || [], errors: results.reduce((n, result) => n + (Number(result?.errors) || 0), 0) };
+  const billingResult = last.synthetic ? results.slice(0, -1).reverse().find((result) => result && !result.synthetic) : null;
+  return {
+    ...last, perPlayer, unspawned: last.unspawned || [], errors: results.reduce((n, result) => n + (Number(result?.errors) || 0), 0),
+    ...(billingResult ? { billingResult } : {}),
+  };
 }
 
 export class MatchUnite {

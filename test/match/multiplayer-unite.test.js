@@ -60,9 +60,9 @@ test('5 人多人变体把各来源计数漏怪合并，并从全房间完美候
   }
 });
 
-function reachUnite({ survivorsFirst = { p_0: 1, p_1: 1 }, survivorsSecond = {}, seed = 810 } = {}) {
+function reachUnite({ survivorsFirst = { p_0: 1, p_1: 1 }, survivorsSecond = {}, seed = 810, instant = true } = {}) {
   let uniteCount = 0;
-  const h = makeMatch({ mode: 'coop', humans: 5, seed, fake: true, script: (battle) => {
+  const h = makeMatch({ mode: 'coop', humans: 5, seed, fake: true, instant, script: (battle) => {
     if (battle.kind !== 'unite') return { leaks: { p_0: 2, p_1: 1 } };
     uniteCount++;
     return { duration: 1, survivors: uniteCount === 1 ? survivorsFirst : survivorsSecond };
@@ -84,6 +84,20 @@ test('多人联防第二轮只接收第一轮残敌并保留原来源，空场�
       leak.routeIndex = 17;
       leak.mods = { ...(leak.mods || {}), task8Marker: leak.sourcePlayerId };
       leak.bounty = { coins: 9, ownerPlayerId: leak.sourcePlayerId };
+    }
+    const sourceQueues = new Map();
+    for (const spawn of first.spawns) {
+      const queue = sourceQueues.get(spawn.sourcePlayerId) || [];
+      queue.push(spawn);
+      sourceQueues.set(spawn.sourcePlayerId, queue);
+    }
+    for (const leak of m.unitePlan.leaked) {
+      const spawn = sourceQueues.get(leak.sourcePlayerId)?.shift();
+      if (spawn) {
+        spawn.mods = { ...leak.mods };
+        spawn.tag = leak.tag;
+        spawn.enemyKey = leak.enemyKey;
+      }
     }
     m.uniteState = serializeUnitePlan(m.unitePlan);
     const restored = h.drive(() => FakeBattle.instances.filter((b) => b.kind === 'unite').length >= 2 || m.phase === PHASE.SETTLE);
@@ -115,8 +129,58 @@ test('多人联防第二轮只接收第一轮残敌并保留原来源，空场�
   }
 });
 
+test('第二轮联防构造失败时只按首轮残敌扣 LP，不重复扣原始漏怪', () => {
+  let uniteCount = 0;
+  const h = makeMatch({ mode: 'coop', humans: 5, seed: 813, fake: true, script: (battle) => {
+    if (battle.kind !== 'unite') return { leaks: { p_0: 2, p_1: 1 } };
+    uniteCount++;
+    return uniteCount === 1 ? { duration: 1, survivors: { p_0: 1 } } : { throwInCtor: true };
+  } }).start();
+  const m = h.m;
+  try {
+    h.toPrep(1);
+    const before = h.ps('p_0').lp;
+    h.drive(() => m.phase === PHASE.SETTLE);
+    assert.ok(m.errorCount > 0, 'the second-round constructor failure remains diagnosed');
+    assert.equal(before - h.ps('p_0').lp, 1, 'only the first-round survivor is charged');
+    assert.equal(m.uniteResultView.through, 1);
+    assert.equal(m.uniteResultView.losses.p_0, 1);
+  } finally {
+    m.dispose();
+  }
+});
+
+test('残敌按 source、enemy、tag 与 mods 精确关联，避免不同悬赏记录错配', () => {
+  const h = reachUnite({ survivorsFirst: { p_0: 1 } });
+  const m = h.m;
+  try {
+    const first = FakeBattle.instances.find((b) => b.kind === 'unite');
+    const leaks = m.unitePlan.leaked.filter((leak) => leak.sourcePlayerId === 'p_0');
+    assert.equal(leaks.length, 2);
+    leaks[1].enemyKey = leaks[0].enemyKey;
+    assert.equal(leaks[0].tag, leaks[1].tag);
+    leaks[0].mods = { ...(leaks[0].mods || {}), bountyId: 'bounty-a' };
+    leaks[0].bounty = { coins: 4, ownerPlayerId: 'p_0' };
+    leaks[1].mods = { ...(leaks[1].mods || {}), bountyId: 'bounty-b' };
+    leaks[1].bounty = { coins: 9, ownerPlayerId: 'p_0' };
+    const p0Spawns = first.spawns.filter((spawn) => spawn.sourcePlayerId === 'p_0');
+    assert.equal(p0Spawns.length, 2);
+    p0Spawns[0].mods = { ...(p0Spawns[0].mods || {}), bountyId: 'bounty-a' };
+    p0Spawns[1].mods = { ...(p0Spawns[1].mods || {}), bountyId: 'bounty-b' };
+    p0Spawns[0].enemyKey = p0Spawns[1].enemyKey = leaks[0].enemyKey;
+    first.spawns = [...p0Spawns.reverse(), ...first.spawns.filter((spawn) => spawn.sourcePlayerId !== 'p_0')];
+    first.plan.survivors = { p_0: 1 };
+    h.drive(() => m.unitePlan?.round === 2);
+    const survivor = m.unitePlan.leaked.find((leak) => leak.sourcePlayerId === 'p_0');
+    assert.equal(survivor.mods.bountyId, 'bounty-b');
+    assert.ok(survivor.bounty?.coins === 9, JSON.stringify({ original: leaks, survivor }));
+  } finally {
+    m.dispose();
+  }
+});
+
 test('多人联防 checkpoint 保存当前轮次与已抽援助者，恢复不再抽样', () => {
-  const h = reachUnite();
+  const h = reachUnite({ instant: false });
   const m = h.m;
   let restoredMatch;
   try {
@@ -127,13 +191,16 @@ test('多人联防 checkpoint 保存当前轮次与已抽援助者，恢复不�
     assert.equal(doc.uniteState.round, 1);
     const helpers = doc.uniteState.helperIds.slice();
     const rng = { ...doc.rng };
-    const opts = { mode: 'coop', humans: 5, seed: 810, fake: true };
+    doc.deadlineRemainingMs = 1000;
+    const opts = { mode: 'coop', humans: 5, seed: 810, fake: true, instant: false };
     restoredMatch = makeMatch(opts);
     assert.equal(restoreMatch(restoredMatch.m, doc, { createRngFromState, log: { warn() {}, info() {}, error() {}, debug() {} } }), true);
     assert.equal(restoredMatch.m.phase, PHASE.UNITE);
     assert.deepEqual(restoredMatch.m.unitePlan.helpers.map((p) => p.playerId), helpers);
     assert.equal(restoredMatch.m.unitePlan.round, 1);
     assert.equal(FakeBattle.instances.filter((b) => b.kind === 'unite').length, 1, 'restore reopens only the checkpointed round without drawing helpers');
+    const restoredLimit = Math.min(150, restoredMatch.m.gd.combatTimeLimitReal(restoredMatch.m.round));
+    assert.equal(restoredMatch.m.deadline - restoredMatch.m.sched.now(), Math.round((restoredLimit * restoredMatch.m.gd.combatTimeScale / restoredMatch.m.gameSpeed) * 1000), 'the rebuilt field gets its full capped deadline instead of the old field’s remaining time');
     assert.equal(restoredMatch.m.rngMeta.state(), rng.rngMeta, 'restore does not consume the saved meta RNG state');
   } finally {
     m.dispose();

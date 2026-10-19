@@ -21,8 +21,9 @@ export class MatchSettle {
     for (const ps of this.order) if (ps.pendingLayerGains) { ps.pendingLayerGains = null; ps.dirty(); }
     const cap = this.gd.lpCapPerRound;
     // a 联防 battle that could not run at all (synthetic result) must not wipe the leakers' losses: charge their own leaks
-    const uniteRan = !!(plan && uniteResult && !uniteResult.synthetic);
-    const survivors = uniteRan ? uniteSurvivors(plan, uniteResult) : null;
+    const billingResult = plan?.variant && uniteResult?.billingResult || uniteResult;
+    const uniteRan = !!(plan && uniteResult && (!uniteResult.synthetic || billingResult !== uniteResult));
+    const survivors = uniteRan ? uniteSurvivors(plan, billingResult) : null;
     // The 联防's outcome as data for the SETTLE view (m.public.uniteResult, views.js; GitHub #235, PR #112 by @Convey123):
     // each client pops the official result box from it (ui/gameLogic/phases.js uniteResultBox) — `through` = the leakers'
     // enemies that still got through (uncapped; only decides whether 「全员无伤！」 is true), `losses` = every alive
