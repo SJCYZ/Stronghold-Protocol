@@ -43,8 +43,19 @@ export function normalizeDraft(draft, players = []) {
  * @param {any} sp
  * @param {any[]} [players]
  */
-export function normalizeSp(sp, players = []) {
+export function normalizeSp(sp, players = [], privateSp = null) {
   if (!isObj(sp)) return null;
+  if (sp.mode === 'squad') {
+    if (privateSp?.mode !== 'squad' || typeof privateSp.squadId !== 'string' || !Array.isArray(privateSp.cards)) return null;
+    const squad = Array.isArray(sp.squads) ? sp.squads.find((x) => x?.squadId === privateSp.squadId) : null;
+    if (!squad) return null;
+    sp = {
+      mode: 'squad', squadId: squad.squadId,
+      family: privateSp.family, name: privateSp.name, desc: privateSp.desc, cards: privateSp.cards,
+      order: squad.order, turn: squad.turn, picks: squad.picks, untimed: squad.untimed,
+      turnDeadline: squad.turnDeadline, progress: squad.progress,
+    };
+  }
   const ids = (Array.isArray(players) ? players : []).filter(isObj).map((p) => p.playerId);
   const order = Array.isArray(sp.order) && sp.order.length ? sp.order.filter((x) => typeof x === 'string') : ids;
   const cards = (Array.isArray(sp.cards) ? sp.cards : []).slice(0, 6).map((c, idx) => {
@@ -68,6 +79,7 @@ export function normalizeSp(sp, players = []) {
   if (typeof sp.turn === 'string') turnPid = sp.turn;
   else if (Number.isInteger(sp.turn) && sp.turn >= 0 && sp.turn < order.length) turnPid = order[sp.turn];
   return {
+    ...(sp.mode === 'squad' ? { mode: 'squad', squadId: sp.squadId, turnDeadline: Number(sp.turnDeadline) || 0, progress: isObj(sp.progress) ? sp.progress : null } : {}),
     family: typeof sp.family === 'string' ? sp.family : null,
     name: typeof sp.name === 'string' && sp.name ? sp.name : null,
     desc: typeof sp.desc === 'string' && sp.desc ? sp.desc : null,
