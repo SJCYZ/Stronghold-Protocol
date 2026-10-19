@@ -101,6 +101,37 @@ test('rescue window expiry eliminates pending targets before the normal survivor
   h.m.dispose();
 });
 
+test('a player who leaves during the rescue window cannot be revived', () => {
+  const h = makeMatch({ mode: 'coop', humans: 2, fake: true }).start();
+  const [rescuer, target] = h.m.order;
+  h.m.phase = PHASE.SETTLE;
+  h.m.rescueDeadline = h.sched.now() + 20_000;
+  h.m.rescueOffers = new Map([[target.playerId, {
+    pluginId: 'life-rescue', cost: 2,
+    callback: ({ rescuerId, targetId }) => {
+      rescuer.lp -= 2;
+      rescuer.stats.lpLost += 2;
+      h.m._rescueResolution.paid = true;
+      target.pendingElimination = false;
+      target.lifeRescueUsed = true;
+      target.alive = true;
+      target.lp = 1;
+    },
+  }]]);
+  rescuer.lp = 5;
+  target.lp = 0;
+  target.pendingElimination = true;
+
+  h.m.onLeave(target.playerId);
+
+  assert.equal(target.left, true);
+  assert.equal(target.alive, false);
+  assert.equal(target.pendingElimination, false);
+  assert.deepEqual(h.m.rescue(rescuer, target.playerId), { error: 'BAD_TARGET' });
+  assert.equal(rescuer.lp, 5);
+  h.m.dispose();
+});
+
 test('real settle registers SDK offers, opens a 20 second window and serializes same-target rescue intents', () => {
   resetExtensions();
   const sp = createSDK({ id: 'life-rescue', permissions: ['match.life'] });
@@ -147,9 +178,28 @@ test('real settle with no qualifying human rescuer uses the original three secon
     leaked: [{ counted: true }], perfect: false, coins: 0,
   }]));
   h.m.settle(null, null);
-  assert.equal(h.m.rescueTargets, undefined);
+  assert.deepEqual(h.m.rescueTargets, []);
+  assert.equal(h.m.publicView().rescue, undefined);
   assert.equal(h.m.deadline - h.sched.now(), 3_000);
   assert.ok(h.m.order.every((ps) => !ps.alive && !ps.pendingElimination));
+  h.m.dispose();
+  resetExtensions();
+});
+
+test('a new settlement does not publish rescue targets left from the previous window', () => {
+  resetExtensions();
+  const h = makeMatch({ mode: 'coop', humans: 2, fake: true }).start();
+  h.m.rescueTargets = ['p_0'];
+  h.m.rescueCost = 2;
+  h.m.rescueDeadline = h.sched.now() - 1;
+  h.m.lastResults = new Map(h.m.order.map((ps) => [ps.playerId, {
+    leaked: [], perfect: true, coins: 0,
+  }]));
+
+  h.m.settle(null, null);
+
+  assert.equal(h.m.publicView().rescue, undefined);
+  assert.deepEqual(h.m.rescueTargets, []);
   h.m.dispose();
   resetExtensions();
 });
@@ -169,7 +219,8 @@ test('a plugin cannot shorten the approved 20 second rescue window', () => {
     leaked: index === 1 ? [{ counted: true }] : [], perfect: index !== 1, coins: 0,
   }]));
   h.m.settle(null, null);
-  assert.equal(h.m.rescueTargets, undefined);
+  assert.deepEqual(h.m.rescueTargets, []);
+  assert.equal(h.m.publicView().rescue, undefined);
   assert.equal(h.m.deadline - h.sched.now(), 3_000);
   h.m.dispose();
   resetExtensions();

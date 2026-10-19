@@ -15,6 +15,10 @@ import { runPostSettlement } from '../../sim/content/extensions.js';
 export class MatchSettle {
   settle(plan, uniteResult) {
     this.phase = PHASE.SETTLE;
+    this.rescueOffers = new Map();
+    this.rescueTargets = [];
+    this.rescueCost = 0;
+    this.rescueDeadline = 0;
     this.runner = null;
     this._stopClientCombat();
     // the pending in-battle gains the views showed become persistent below (alive players) or lapse (DESIGN §20.15)
@@ -84,7 +88,6 @@ export class MatchSettle {
         this.tickerText(msg('{name}博士的目标生命值已耗尽', { name: ps.name }), FLOW_TICKER_PRIORITY);
       }
     }
-    this.rescueOffers = new Map();
     const rescueTargets = this.order.filter((ps) => ps.pendingElimination);
     const errors = runPostSettlement({
       players: this.order,

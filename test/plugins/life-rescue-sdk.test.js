@@ -62,6 +62,51 @@ test('server post-settlement receives immutable player copies and scoped rescue 
   resetExtensions();
 });
 
+test('life write closures expire after post-settlement and rescue callbacks return', () => {
+  resetExtensions();
+  const sp = createSDK({ id: 'life-rescue', permissions: ['match.life'] });
+  let lateChangeLife;
+  let lateRevive;
+  let lateOfferRescue;
+  let rescueHandler;
+  let retainedRescueOps;
+  let registrationCount = 0;
+  const changed = [];
+  const revived = [];
+  sp.match.life.onPostSettlement(({ changeLife, revive, offerRescue }) => {
+    lateChangeLife = changeLife;
+    lateRevive = revive;
+    lateOfferRescue = offerRescue;
+    offerRescue({ cost: 2, durationMs: 20_000, targetIds: ['p2'] }, ops => {
+      retainedRescueOps = ops;
+      assert.equal(ops.changeLife(ops.rescuerId, -2), true);
+      assert.equal(ops.revive(ops.targetId, 1), true);
+    });
+  });
+
+  extensions.runPostSettlement({
+    players: [],
+    changeLife: (...args) => { changed.push(args); return true; },
+    revive: (...args) => { revived.push(args); return true; },
+    offerRescue: (_pluginId, _spec, handler) => { registrationCount++; rescueHandler = handler; return true; },
+  });
+  assert.equal(lateChangeLife('p1', -1), false);
+  assert.equal(lateRevive('p2', 1), false);
+  assert.equal(lateOfferRescue({ cost: 2, durationMs: 20_000, targetIds: ['p2'] }, () => {}), false);
+  assert.equal(registrationCount, 1);
+  assert.deepEqual(changed, []);
+  assert.deepEqual(revived, []);
+
+  rescueHandler({ rescuerId: 'p1', targetId: 'p2' });
+  assert.deepEqual(changed, [['p1', -2]]);
+  assert.deepEqual(revived, [['p2', 1]]);
+  assert.equal(retainedRescueOps.changeLife('p1', -2), false);
+  assert.equal(retainedRescueOps.revive('p2', 1), false);
+  assert.deepEqual(changed, [['p1', -2]]);
+  assert.deepEqual(revived, [['p2', 1]]);
+  resetExtensions();
+});
+
 test('client-side SDK registration does not run lifecycle callbacks or provide write context', () => {
   resetExtensions();
   const sp = createSDK({ id: 'client', permissions: ['match.life'] });

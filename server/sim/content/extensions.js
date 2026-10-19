@@ -130,14 +130,25 @@ export function runPostSettlement({ players, changeLife, revive, offerRescue }) 
   })));
   const errors = [];
   for (const [pluginId, handler] of lifeHandlers) {
+    let active = true;
     try {
       handler({
-        players: view, changeLife, revive,
-        offerRescue: (request, callback) => offerRescue(pluginId, request, confirmation => callback({
-          rescuerId: confirmation.rescuerId, targetId: confirmation.targetId, changeLife, revive,
-        })),
+        players: view,
+        changeLife: (...args) => active ? changeLife(...args) : false,
+        revive: (...args) => active ? revive(...args) : false,
+        offerRescue: (request, callback) => active ? offerRescue(pluginId, request, confirmation => {
+          let activeRescue = true;
+          try {
+            return callback({
+              rescuerId: confirmation.rescuerId, targetId: confirmation.targetId,
+              changeLife: (...args) => activeRescue ? changeLife(...args) : false,
+              revive: (...args) => activeRescue ? revive(...args) : false,
+            });
+          } finally { activeRescue = false; }
+        }) : false,
       });
     } catch (error) { errors.push({ pluginId, error }); }
+    finally { active = false; }
   }
   return errors;
 }

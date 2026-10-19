@@ -54,6 +54,7 @@ export class PlayerRound {
   // flagged afterElimination — GitHub #86); nothing else of an eliminated player is dispatched.
   eliminate(round) {
     this.alive = false;
+    this.pendingElimination = false;
     this.ready = false;
     this.eliminatedRound = round;
     const all = [];
