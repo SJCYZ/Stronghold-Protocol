@@ -137,6 +137,7 @@ export const PERMISSIONS = Object.freeze({
   'sim.code': ['script', 'trusted'],
   'meta.code': ['script', 'trusted'],
   'mode.code': ['script', 'trusted'],
+  'clock.speed': ['script', 'trusted'],
   'ui.frame': ['ui'],
   'trusted.page': ['trusted'],
   'trusted.server': ['trusted'],

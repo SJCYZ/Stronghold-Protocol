@@ -73,6 +73,7 @@ This project does not host plugins and does not run a market. A catalogue (`sche
 | `permission.sim.code` | experimental | 0.3.0 | `shared/plugins/manifest.js#PERMISSIONS` |
 | `permission.meta.code` | experimental | 0.3.0 | `shared/plugins/manifest.js#PERMISSIONS` |
 | `permission.mode.code` | experimental | 0.3.0 | `shared/plugins/manifest.js#PERMISSIONS` |
+| `permission.clock.speed` | experimental | 0.3.0 | `shared/plugins/manifest.js#PERMISSIONS` |
 | `permission.ui.frame` | stable | 0.3.0 | `shared/plugins/manifest.js#PERMISSIONS` |
 | `permission.trusted.page` | experimental | 0.3.0 | `shared/plugins/manifest.js#PERMISSIONS` |
 | `permission.trusted.server` | experimental | 0.3.0 | `shared/plugins/manifest.js#PERMISSIONS` |
@@ -470,6 +471,7 @@ This project does not host plugins and does not run a market. A catalogue (`sche
 | `catalog.entry.app` | stable | 0.3.0 | `shared/plugins/catalog.js#CATALOG_ENTRY_FIELDS` |
 | `sdk.sp:sdk@1` | experimental | 0.3.0 | `shared/plugins/sdk.js#SDK_ID` |
 | `sdk.SDK_MEMBERS` | internal | 0.3.0 | `shared/plugins/sdk.js#SDK_MEMBERS` |
+| `sdk.sp:sdk@1.clock.onPhase` | experimental | 0.3.0 | `shared/plugins/sdk.js#SDK_MEMBERS` |
 | `sdk.sp:sdk@1.constants` | experimental | 0.3.0 | `shared/plugins/sdk.js#SDK_MEMBERS` |
 | `sdk.sp:sdk@1.content.register` | experimental | 0.3.0 | `shared/plugins/sdk.js#SDK_MEMBERS` |
 | `sdk.sp:sdk@1.enemies.register` | experimental | 0.3.0 | `shared/plugins/sdk.js#SDK_MEMBERS` |

@@ -160,6 +160,7 @@ patches, compact operator records, modes — are specified in §10.
 | `data.patch`, `data.add` | content, script, trusted | `data` (either); `operators`, `enemies`, `modes`, `stages` (`data.add`) |
 | `dsl` | content, script, trusted | `dsl` |
 | `sim.code`, `meta.code`, `mode.code` | script, trusted | `entry.sim`, `entry.meta` |
+| `clock.speed` | script, trusted | 注册服务端战斗阶段调速控制器 |
 | `ui.frame` | ui | `entry.client` of a ui plugin |
 | `trusted.page`, `trusted.server` | trusted | `entry.client`, `entry.server` of a trusted plugin |
 
@@ -786,6 +787,7 @@ empty. Only plugin `char_x_…` ids add a shop charId lookup; official dispatch 
 | `sp.kits.register(id, builder)` | `(bb, chess, def) => Kit`, SIM §7; `sim.code` |
 | `sp.enemies.register(id, builder)` | `(def) => { install(battle, enemy) }`; install on enemySpawn before ordinary enemy handlers; `sim.code` |
 | `sp.content.register({ id?, install?, registerMeta? })` | One module id (defaults to plugin id); install per battle; registerMeta receives `{ register(key, handler) }` during setup; permissions for each half |
+| `sp.clock.onPhase(handler)` | `clock.speed`; 每个内容组合最多注册一个控制器。Match 服务端在进入活动战斗阶段时调用阶段处理器；浏览器插件环境只允许注册，不执行时钟回调或修改速度。上下文包含 `phase`、`elapsed()`、`after(seconds, callback)`、`every(seconds, callback)` 与 `setSpeed(value)`。 |
 | `sp.meta.register(key, handler)` | META §2 keys and hook contracts; `meta.code` |
 | `sp.kit` / imported `kit` | `num`, `talentBb`, `talentGrid`, `moduleBb`, `traitBb`, `moduleOn`, `up`, `cheb`, `isMainHit`, `byEnemyAttack`, `skillBusy`, `giveSp`, `onHitBy`, `onHitOn`, `onDamagedOn`, `enemiesInGrid`, `alliesInGridOf`, `enemyInRange`, `statBuff`, `toggleBuff`, `instantKind`, `skillRec`, `skillBbOf`, `batMod` — tier1 signatures |
 | `sp.math` / imported `math` | The exports of `server/sim/detmath.js` |
@@ -793,13 +795,7 @@ empty. Only plugin `char_x_…` ids add a shop charId lookup; official dispatch 
 | `sp.settings` | A frozen copy of the manifest's normalized settings, included in cs |
 | `sp.log(...values)` | At most 20 lines per setup, each value truncated to 500 characters [ASSUMED] |
 
-The facade supplies no fetch, dynamic import, storage, clock or unseeded randomness. Hooks and engine helpers follow
-SIM §5–7. Use `battle.rng`, `after` and `every`. `tools/plugin.mjs check` and the registry use the same lexical scan
-(`shared/plugins/scriptCheck.js`): only `sp:sdk@1` imports, no dynamic import/re-export, eval, Function, require,
-process/globalThis, fetch/XHR/WebSocket, Date, Math.random or localeCompare; common ambient browser APIs and
-implementation-approximated Math functions are also refused. This is deliberately not a complete parser or a sandbox;
-obfuscation can evade it, and conservative scans can refuse inert template/regex text. `trusted` page/server entries
-are unrestricted and never labelled sandboxable; their sim/meta entries still use the SDK checks.
+除 `clock.speed` 明确提供的 Match 阶段时钟外，SDK 不提供墙钟或通用定时器。未声明权限时调用 `sp.clock.onPhase` 会按 `PLUGIN_PERMISSION_MISSING` 拒绝；多个控制器注册会以 `PLUGIN_SCRIPT_CONFLICT` 拒绝组合。阶段时钟、定时回调和速度设置仅由 Match 服务端执行。Hooks 和引擎辅助函数遵循 SIM §5–7；使用 `battle.rng`、`after` 和 `every`。`tools/plugin.mjs check` 与注册表使用相同的词法扫描（`shared/plugins/scriptCheck.js`）：只允许导入 `sp:sdk@1`，拒绝动态导入/再导出、eval、Function、require、process/globalThis、fetch/XHR/WebSocket、Date、Math.random 或 localeCompare；也会拒绝常见环境浏览器 API 和实现近似的 Math 函数。这不是完整解析器或沙箱；混淆代码可能绕过扫描，保守扫描也可能拒绝无害的模板/正则文本。`trusted` 页面/服务端入口不受限且不会标记为可沙箱运行；其 sim/meta 入口仍使用 SDK 检查。
 
 **Budget.** Script callbacks and engine actions use the same per-battle/per-plugin counter as DSL (default 8000).
 Setup installs, hooks, timer callbacks and skill callbacks count. Engine actions (damage, buffs, spawning, DP, etc.)

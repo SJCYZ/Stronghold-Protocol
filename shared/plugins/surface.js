@@ -34,7 +34,7 @@ export const SURFACE_MARKERS = Object.freeze({
 });
 
 /** Permissions that only an unsupported class may hold. Experimental until that class is supported. */
-const EXPERIMENTAL_PERMISSIONS = new Set(['sim.code', 'meta.code', 'mode.code', 'trusted.page', 'trusted.server']);
+const EXPERIMENTAL_PERMISSIONS = new Set(['clock.speed', 'sim.code', 'meta.code', 'mode.code', 'trusted.page', 'trusted.server']);
 /** Code plugins (P3a trusted, P3b sandbox) are new in 0.3.0: their classes and their manifest field stay experimental. */
 const EXPERIMENTAL_CLASSES = new Set(['script', 'trusted']);
 const EXPERIMENTAL_FIELDS = new Set(['overrides']);

@@ -73,6 +73,7 @@ import { KITS } from './kits/index.js';
 
 export const EXTENSIONS = Object.create(null);
 const enemies = new Map(), content = new Map(), meta = new Map(), owners = new Map();
+let combatClockController = null;
 let sealed = false;
 const metaOwners = new WeakMap();
 export const extensionMetaOwner = handler => metaOwners.get(handler);
@@ -117,6 +118,12 @@ export function registerContent(plugin, module) {
   // Resolve registration now so conflicts fail composition, not the first match.
   module.registerMeta?.(Object.freeze({ register: (key, h) => registerMeta(plugin,key,h) }));
 }
+export function registerCombatClock(plugin, onPhase) {
+  if (typeof onPhase !== 'function') fail('PLUGIN_SCRIPT_CONFLICT', 'combat clock handler must be a function');
+  reserve('clock', plugin, 'speed');
+  combatClockController = { plugin, onPhase };
+}
+export function getCombatClockController() { return combatClockController; }
 export function installExtensions(battle) {
   for (const { plugin, install } of content.values()) {
     try { install?.(battle); } catch (e) { battle._handlerError('plugin:'+plugin.id,null,e); }
@@ -131,7 +138,7 @@ export function registerExtensionMeta(registry) {
 }
 export function resetExtensions() {
   for (const k of Object.keys(EXTENSIONS)) delete EXTENSIONS[k];
-  enemies.clear(); content.clear(); meta.clear(); owners.clear(); sealed = false;
+  enemies.clear(); content.clear(); meta.clear(); owners.clear(); combatClockController = null; sealed = false;
 }
 export function sealExtensions() { sealed = true; }
 export function extensionRegistrations() { return [...owners].map(([key,pluginId]) => ({key,pluginId})); }
