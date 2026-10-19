@@ -15,6 +15,7 @@ import { validChatText } from '../../../shared/chat.js';
 
 export class MatchIntents {
   _handle(ps, msg) {
+    if (ps.pendingElimination && msg.t !== 'g.rescue') return fail(ERR.ELIMINATED);
     switch (msg.t) {
       case 'g.infoReady':
         if (this.phase !== PHASE.INFO_CHECK) return fail(ERR.WRONG_PHASE);
@@ -42,6 +43,7 @@ export class MatchIntents {
         ? this.pickPersonalChoice(ps, msg.idx, msg.choiceId)
         : this.pickCard(ps, msg.idx);
       case 'g.ready': return ps.setReady(!!msg.ready);
+      case 'g.rescue': return this.rescue(ps, msg.targetId);
       case 'g.emote': return this.emote(ps, msg.id);
       case 'g.chat': return this.chat(ps, msg.text);
       // playerId: the player tapped (a shared field names two) — the watch preference (item 56)

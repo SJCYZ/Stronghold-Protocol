@@ -3,13 +3,14 @@
 // view carries) and RESULT (finish: m.result to every human still here, onEnd).
 // Installed on Match.prototype by server/match/Match.js (a method container: never instantiated; `this` is the match).
 
-import { PHASE, layerGainRoom } from '../../../shared/constants.js';
+import { PHASE, ERR, layerGainRoom } from '../../../shared/constants.js';
 import { uniteSurvivors } from '../unite.js';
 import { buildResult } from '../results.js';
 import { FLOW_TICKER_PRIORITY, DELAYS } from './common.js';
 import { msg } from '../../../shared/i18n.js';
 import { onSettle, resetRoundCounters } from '../botEmotes.js';
 import { creditedKillsOf } from '../../sim/spec.js';
+import { runPostSettlement } from '../../sim/content/extensions.js';
 
 export class MatchSettle {
   settle(plan, uniteResult) {
@@ -78,16 +79,98 @@ export class MatchSettle {
     for (const ps of alive) {
       if (ps.lp <= 0) {
         ps.lp = 0;
-        ps.eliminate(this.round);
+        ps.pendingElimination = true;
         this.toast(ps, 'error', '你的目标生命值耗尽，已被淘汰');
         this.tickerText(msg('{name}博士的目标生命值已耗尽', { name: ps.name }), FLOW_TICKER_PRIORITY);
       }
+    }
+    this.rescueOffers = new Map();
+    const rescueTargets = this.order.filter((ps) => ps.pendingElimination);
+    const errors = runPostSettlement({
+      players: this.order,
+      changeLife: (playerId, delta) => {
+        const ps = this.players.get(playerId);
+        if (!ps || !ps.alive || ps.pendingElimination || this.phase !== PHASE.SETTLE || !Number.isInteger(delta) || !delta) return false;
+        if (this._rescueResolution && (ps.playerId !== this._rescueResolution.rescuerId || delta !== -this._rescueResolution.cost || this._rescueResolution.paid)) return false;
+        const next = ps.lp + delta;
+        if (next < 1 || next > 1_000_000) return false;
+        ps.lp = next;
+        if (delta < 0) ps.stats.lpLost += -delta;
+        if (this._rescueResolution) this._rescueResolution.paid = true;
+        ps.dirty();
+        return true;
+      },
+      revive: (playerId, lp = 1) => {
+        const ps = this.players.get(playerId);
+        if (!ps || !ps.pendingElimination || ps.lifeRescueUsed || this.phase !== PHASE.SETTLE || lp !== 1) return false;
+        if (this._rescueResolution && (ps.playerId !== this._rescueResolution.targetId || !this._rescueResolution.paid)) return false;
+        ps.pendingElimination = false;
+        ps.lifeRescueUsed = true;
+        ps.alive = true;
+        ps.lp = 1;
+        ps.recompute();
+        return true;
+      },
+      offerRescue: (pluginId, request, callback) => {
+        const target = this.players.get(request?.targetId);
+        const cost = request?.cost;
+        if (!target || !target.pendingElimination || !Number.isInteger(cost) || cost < 1 || cost > 100) return false;
+        this.rescueOffers.set(target.playerId, { pluginId, cost, callback });
+        return true;
+      },
+    });
+    for (const { pluginId, error } of errors) this.reportError(`plugin:${pluginId}`, error);
+    const rescueCost = Math.min(...[...this.rescueOffers.values()].map((offer) => offer.cost));
+    const hasRescuer = Number.isFinite(rescueCost) && this.order.some((ps) => !ps.isBot && ps.alive && !ps.pendingElimination && ps.lp - rescueCost >= 1);
+    if (rescueTargets.length && hasRescuer) {
+      this.rescueCost = rescueCost;
+      this.rescueTargets = rescueTargets.map((ps) => ps.playerId);
+      this.rescueDeadline = this.sched.now() + this.scaled(20_000);
+      this.setDeadline(20, () => this.expireRescueWindow());
+    } else {
+      for (const ps of rescueTargets) this._eliminatePending(ps);
+      this.setDeadline(DELAYS.SETTLE / 1000, () => this.afterSettle(), { silent: this.soloUntimed });
     }
     this.fields = [];
     this.watchers.clear();
     this.markPublic();
     onSettle(this); // one emote per alive AI per round (enabled by default; SP_BOT_EMOTES=0 silences it)
-    this.setDeadline(DELAYS.SETTLE / 1000, () => this.afterSettle(), { silent: this.soloUntimed });
+  }
+
+  _eliminatePending(ps) {
+    if (!ps?.pendingElimination) return;
+    ps.pendingElimination = false;
+    ps.eliminate(this.round);
+  }
+
+  expireRescueWindow() {
+    for (const ps of this.order) this._eliminatePending(ps);
+    this.markPublic();
+    this.afterSettle();
+  }
+
+  rescue(ps, targetId) {
+    if (this.phase !== PHASE.SETTLE || this.rescueDeadline <= this.sched.now()) return { error: ERR.WRONG_PHASE };
+    const target = this.players.get(targetId);
+    const offer = this.rescueOffers?.get(targetId);
+    const cost = offer?.cost;
+    if (!target?.pendingElimination || target.lifeRescueUsed || !offer || ps.isBot || !ps.alive || ps.pendingElimination || !Number.isInteger(cost) || ps.lp - cost < 1) return { error: ERR.BAD_TARGET };
+    const resolution = { rescuerId: ps.playerId, targetId, cost, paid: false };
+    this._rescueResolution = resolution;
+    try { offer.callback({ rescuerId: ps.playerId, targetId }); }
+    catch (error) { this.reportError(`plugin:${offer.pluginId}`, error); }
+    finally { this._rescueResolution = null; }
+    if (!resolution.paid || target.pendingElimination || !target.alive || target.lp !== 1 || !target.lifeRescueUsed) {
+      if (resolution.paid) { ps.lp += cost; ps.stats.lpLost -= cost; }
+      target.pendingElimination = true;
+      target.alive = true;
+      target.lp = 0;
+      target.lifeRescueUsed = false;
+      return { error: ERR.BAD_TARGET };
+    }
+    this.markPublic();
+    ps.dirty();
+    return { ok: true };
   }
 
   /**

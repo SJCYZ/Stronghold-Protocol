@@ -427,12 +427,14 @@ export function attachAudit(m, { invariants = true, limit = 200 } = {}) {
         // after 联防 a leaker pays for every surviving enemy of its source — enemies spawned by its leaked enemies
         // (splitters, summoners) included — so only the cap bounds it; everybody else never exceeds own leaks
         const max = uniteRan && plan.leakers.includes(ps) ? cap : Math.min(cap, counted);
-        if (ps.alive) {
+        if (ps.alive && !ps.pendingElimination) {
           const loss = lp0 - ps.lp;
           if (loss < 0) fail(`${ps.playerId}: LP rose in settle ${lp0} → ${ps.lp}`);
           if (loss > max) fail(`${ps.playerId}: lost ${loss} LP with ${counted} counted leaks (cap ${cap})`);
           if (!uniteRan && loss !== max) fail(`${ps.playerId}: lost ${loss} LP, expected min(${cap}, ${counted})`);
           if (ps.lp <= 0) fail(`${ps.playerId}: alive with LP ${ps.lp}`);
+        } else if (ps.pendingElimination) {
+          if (m.phase !== PHASE.SETTLE || ps.lp !== 0) fail(`${ps.playerId}: invalid pending elimination state`);
         } else {
           // eliminated: LP is clamped to 0, so the loss was ≥ lp0 and still ≤ min(cap, counted)
           if (lp0 > max) fail(`${ps.playerId}: eliminated from ${lp0} LP with only ${counted} counted leaks`);
@@ -440,7 +442,8 @@ export function attachAudit(m, { invariants = true, limit = 200 } = {}) {
           if (ps.lp !== 0) fail(`${ps.playerId}: eliminated with LP ${ps.lp}`);
         }
       }
-      expectDeadline(3, 'SETTLE', { silentSolo: true });
+      if (m.rescueTargets?.length) expectDeadline(20, 'SETTLE');
+      else expectDeadline(3, 'SETTLE', { silentSolo: true });
     });
     runInvariants();
     return res;

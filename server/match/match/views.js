@@ -35,6 +35,7 @@ function cultivationInfo(lo) {
 export class MatchViews {
   statusOf(ps) {
     if (ps.left) return 'left';
+    if (ps.pendingElimination) return 'dead';
     if (!ps.alive) return 'dead';
     switch (this.phase) {
       case PHASE.INFO_CHECK: return ps.infoReady ? 'ready' : 'deciding';
@@ -98,7 +99,7 @@ export class MatchViews {
         name: ps.name,
         isBot: ps.isBot,
         connected: ps.isBot || (ps.connected && !ps.left),
-        alive: ps.alive,
+        alive: ps.alive && !ps.pendingElimination,
         lp: Math.max(0, ps.lp),
         bandId: ps.bandId,
         shopLevel: ps.shop.level,
@@ -120,6 +121,7 @@ export class MatchViews {
         ...(Object.keys(ps.skins).length ? { skins: ps.skins } : {}),
         // the LP this round's own battle will cost at settlement so far (COMBAT / 联防 only, omitted when 0)
         ...this._pendingLpView(ps),
+        ...(ps.pendingElimination ? { pendingElimination: true } : {}),
       })),
       fields: this.fields.map((f) => {
         const v = { fieldId: f.fieldId, kind: f.kind, players: f.players.slice(), live: !!f.live };
@@ -149,6 +151,9 @@ export class MatchViews {
       };
     }
     if (this.phase === PHASE.UNITE && this.unitePlan) v.unite = { helpers: this.unitePlan.helpers.map((p) => p.playerId), leakers: this.unitePlan.leakers.map((p) => p.playerId) };
+    if (this.phase === PHASE.SETTLE && this.rescueTargets?.length) v.rescue = {
+      targets: this.rescueTargets.map((id) => ({ playerId: id, cost: this.rescueOffers.get(id)?.cost ?? this.rescueCost })),
+    };
     // SETTLE after a 联防: its outcome as data (settle.js uniteResultView; GitHub #235, PR #112) — { through, helpers,
     // leakers, losses: { playerId: the LP settlement charged this round } } — the client's result box reads the viewer's
     // own charge from it; absent when no 联防 resolved (the client then shows the round's own battle result)
