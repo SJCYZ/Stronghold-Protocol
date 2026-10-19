@@ -5,6 +5,7 @@ import { TestClient } from './helpers/wsClient.js';
 import { EventEmitter } from 'node:events';
 import { setImmediate as nextTurn } from 'node:timers/promises';
 import { Network, SessionRegistry, PRESENCE_INTERVAL_MS } from '../server/net.js';
+import { PROTOCOL_VERSION } from '../shared/constants.js';
 
 let srv;
 const clients = [];
@@ -51,7 +52,7 @@ test('join/leave do not trigger presence outside the fixed schedule; shutdown cl
     return ws;
   };
   const a = socket(), title = socket();
-  const hello = (ws, name) => ws.emit('message', Buffer.from(JSON.stringify({ t: 'hello', name, version: 1 })), false);
+  const hello = (ws, name) => ws.emit('message', Buffer.from(JSON.stringify({ t: 'hello', name, version: PROTOCOL_VERSION })), false);
   const presence = (ws) => ws.frames.filter((m) => m.t === 'presence');
   hello(a, 'A');
   assert.equal(a.frames.find((m) => m.t === 'welcome').online, 1);

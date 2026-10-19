@@ -161,7 +161,7 @@ import { cleanPlayerCard, isCardPortraitId, cardPortraitOperatorId, isCardAvatar
 //     a player seat (the seat is kept and given back on resume).
 
 import { randomBytes, randomInt } from 'node:crypto';
-import { ERR, MAX_SEATS, MAX_SPECTATORS, ROOM_CODE_LEN, DIFFICULTIES, modeIdFor } from '../shared/constants.js';
+import { ERR, MAX_SEATS, MAX_ROOM_CAPACITY, DEFAULT_ROOM_CAPACITY, MAX_SPECTATORS, ROOM_CODE_LEN, DIFFICULTIES, modeIdFor } from '../shared/constants.js';
 import { checkLoadout, checkLoadoutOps, cultivationCharIds, checkNotOwned, checkDiyPicks, charPotentialChanges } from '../shared/protocol.js';
 import { encode, isDroppable, isErrCode, sendRaw, sendSession } from './net.js';
 import { resetStateDelta } from './stateTransport.js';
@@ -249,13 +249,14 @@ function freezeDiy(picks) {
   return Object.freeze(out);
 }
 
-/** One room: 4 seat slots, host, difficulty, optional running match. */
+/** One room: capacity-bounded seat slots, host, difficulty, optional running match. */
 export class Room {
-  /** @param {string} code @param {'solo'|'coop'} mode @param {string} difficulty @param {number} now */
-  constructor(code, mode, difficulty, now) {
+  /** @param {string} code @param {'solo'|'coop'} mode @param {string} difficulty @param {number} now @param {number} [capacity] */
+  constructor(code, mode, difficulty, now, capacity = mode === 'solo' ? 1 : DEFAULT_ROOM_CAPACITY) {
     this.code = code;
     this.mode = mode;
     this.difficulty = difficulty;
+    this.capacity = capacity;
     /**
      * 「AI 队友最后选择」 (room.setAiPicksLast, GitHub #338; co-op only, off by default): the match's strategy and 机变 drafts
      * put every human seat before every AI seat (Match opts.aiPicksLast). Kept across the room's matches.
@@ -264,7 +265,7 @@ export class Room {
     /** @type {string | null} */
     this.hostId = null;
     /** @type {(Seat | null)[]} */
-    this.seats = new Array(MAX_SEATS).fill(null);
+    this.seats = new Array(capacity).fill(null);
     /** @type {{ playerId: string, name: string, connected: boolean }[]} spectator seats, ≤ MAX_SPECTATORS (header) */
     this.spectators = [];
     /** @type {any} running Match instance */
@@ -331,6 +332,7 @@ export class Room {
       hostId: this.hostId,
       mode: this.mode,
       difficulty: this.difficulty,
+      capacity: this.capacity,
       aiPicksLast: this.aiPicksLast,
       inMatch: !!this.match,
       matching: this.matching ? { ...this.matching } : null,
@@ -676,6 +678,7 @@ export class Lobby {
       case 'room.leave': return this.leave(session);
       case 'room.ready': return this.ready(session, msg);
       case 'room.setDifficulty': return this.setDifficulty(session, msg);
+      case 'room.setCapacity': return this.setCapacity(session, msg);
       case 'room.setAiPicksLast': return this.setAiPicksLast(session, msg);
       case 'room.addBot': return this.addBot(session);
       case 'room.removeBot': return this.removeBot(session, msg);
@@ -1090,6 +1093,7 @@ export class Lobby {
       if (room.hostId !== session.playerId) return fail(ERR.NOT_HOST);
       if (room.seats.some((s) => s?.isBot)) return fail(ERR.BAD_MSG, t('请先移除 AI 队友，再匹配真人队友'));
       const humans = room.activeHumans();
+      if (humans.length > MAX_SEATS || humans.some((s) => s.seat >= MAX_SEATS)) return fail(ERR.BAD_MSG, 'room exceeds the four-player match size');
       if (!humans.length || humans.some((s) => !s.connected)) return fail(ERR.NOT_READY, 'all party members must be connected');
       if (humans.some((s) => this.queueByPlayer.has(s.playerId))) return fail(ERR.MATCHING);
       const players = humans.map((s) => ({ seat: s.seat, playerId: s.playerId, name: s.name,
@@ -1286,7 +1290,9 @@ export class Lobby {
     }
   }
 
-  create(session, { mode, difficulty }) {
+  create(session, { mode, difficulty, capacity }) {
+    if (mode === 'solo' && capacity != null && capacity !== 1) return fail(ERR.BAD_MSG, 'solo rooms have one seat');
+    if (mode === 'coop' && capacity != null && (capacity < MAX_SEATS || capacity > MAX_ROOM_CAPACITY)) return fail(ERR.BAD_MSG);
     if (this.queueByPlayer.has(session.playerId)) return fail(ERR.MATCHING);
     const cur = this.roomOf(session);
     if (cur && cur.match) return fail(ERR.ROOM_STARTED, 'leave your running match first');
@@ -1307,7 +1313,8 @@ export class Lobby {
     const code = this.genCode();
     if (!code) return fail(ERR.INTERNAL, 'no room code available');
     if (cur) this.removeMember(cur, session.playerId);
-    const room = new Room(code, mode, difficulty, this.now());
+    const roomCapacity = mode === 'solo' ? 1 : (capacity ?? DEFAULT_ROOM_CAPACITY);
+    const room = new Room(code, mode, difficulty, this.now(), roomCapacity);
     room.content = this.vanilla;
     // the server owner's default plugins (plugins/config.json `default`; header "Gameplay plugins"): none — the original game
     const defaults = this.plugins?.defaults?.() || [];
@@ -1440,6 +1447,26 @@ export class Lobby {
       for (const s of room.seats) if (s && !s.isBot && s.playerId !== room.hostId) s.ready = false;
       this.broadcastState(room);
     }
+    return OK;
+  }
+
+  setCapacity(session, { capacity }) {
+    const room = this.roomOf(session);
+    if (!room) return fail(ERR.NOT_IN_ROOM);
+    if (room.hostId !== session.playerId) return fail(ERR.NOT_HOST);
+    if (room.match) return fail(ERR.ROOM_STARTED);
+    if (room.matching) return fail(ERR.MATCHING);
+    if (room.mode === 'solo') return fail(ERR.BAD_TARGET, 'solo rooms have one seat');
+    if (capacity < MAX_SEATS || capacity > MAX_ROOM_CAPACITY) return fail(ERR.BAD_MSG);
+    const occupied = room.seats.reduce((count, seat) => count + (seat ? 1 : 0), 0);
+    const highest = room.seats.reduce((last, seat, index) => seat ? index + 1 : last, 0);
+    if (capacity < Math.max(occupied, highest)) return fail(ERR.BAD_TARGET, 'capacity below occupied seats');
+    if (capacity === room.capacity) return OK;
+    this.dropReplay(room, session.playerId);
+    if (capacity > room.capacity) for (let i = room.capacity; i < capacity; i++) room.seats[i] = null;
+    room.seats.length = capacity;
+    room.capacity = capacity;
+    this.broadcastState(room);
     return OK;
   }
 
@@ -1723,6 +1750,8 @@ export class Lobby {
     if (room.hostId !== session.playerId) return fail(ERR.NOT_HOST);
     if (room.match) return fail(ERR.ROOM_STARTED);
     if (room.matching) return fail(ERR.MATCHING);
+    if (room.seats.length !== room.capacity || room.seats.some((s, i) => s && (s.seat !== i || i >= MAX_SEATS))
+      || room.seats.filter(Boolean).length > MAX_SEATS) return fail(ERR.BAD_MSG, 'room exceeds the four-player match size');
     const humans = room.activeHumans();
     if (room.content?.trusted && humans.some(s => s.consentCs !== room.content.cs)) return fail(ERR.PLUGIN_CONSENT);
     for (const s of humans) {

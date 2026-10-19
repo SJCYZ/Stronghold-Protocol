@@ -7,6 +7,7 @@ import { Lobby } from '../server/lobby.js';
 import { CooperativeQueue } from '../server/cooperative.js';
 import { RealScheduler } from '../server/match/scheduler.js';
 import { MatchMessaging } from '../server/match/match/messaging.js';
+import { PROTOCOL_VERSION } from '../shared/constants.js';
 
 function socket(network) {
   const ws = new EventEmitter();
@@ -57,7 +58,7 @@ test('presence skips busy sockets, coalesces to latest, and resumes only on the 
   const presence = (ws) => ws.frames.filter((m) => m.t === 'presence');
   network.broadcastPresence();
   removed.close();
-  busy.emit('message', Buffer.from('{"t":"hello","name":"Busy","version":1}'), false);
+  busy.emit('message', Buffer.from(JSON.stringify({ t: 'hello', name: 'Busy', version: PROTOCOL_VERSION })), false);
   now = 20000;
   network.broadcastPresence();
   await drain(network);

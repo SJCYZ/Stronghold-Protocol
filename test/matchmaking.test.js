@@ -79,6 +79,19 @@ test('four solo queue entries start one four-human preparation match immediately
   assert.equal(srv.lobby.stats().rooms, 0);
 });
 
+test('a twenty-seat room still quick-matches as a four-player team', async () => {
+  const cs = await Promise.all(['Large Host', 'Solo A', 'Solo B', 'Solo C'].map((name) => player(name)));
+  await ok(cs[0], { t: 'room.create', mode: 'coop', difficulty: 'FUNNY', capacity: 20 });
+  const room = await cs[0].waitFor('room.state', (s) => s.code);
+  await ok(cs[0], { t: 'match.join', mode: 'coop', difficulty: 'FUNNY' });
+  const queuedRoom = await cs[0].waitFor('room.state', (s) => s.matching?.count === 1);
+  assert.equal(queuedRoom.matching.capacity, 4);
+  for (const c of cs.slice(1)) await ok(c, { t: 'match.join', mode: 'coop', difficulty: 'FUNNY' });
+  for (const c of cs) humanTeam(await c.waitFor('m.public', (m) => m.phase === 'INFO_CHECK'), cs);
+  await ok(cs[0], { t: 'g.autoplay', on: true });
+  assert.ok(srv.lobby.getRoom(room.code)?.match, 'the queued room owns the started match');
+});
+
 for (const matchWorkers of [0, 1]) for (const fillBots of [undefined, false, true]) {
   test(`two-human party combines with two solos (${matchWorkers ? 'real Worker' : 'local'}, legacy flag=${fillBots})`, async (t) => {
     const localClients = [];
