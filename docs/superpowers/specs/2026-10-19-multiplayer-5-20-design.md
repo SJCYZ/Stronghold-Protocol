@@ -1,6 +1,6 @@
 # 5–20 人多人能力移植设计
 
-状态：待用户审核。基线为 `codex/tailscale-studio` 的 `efa0d8e0`。
+状态：设计已确认。基线为 `codex/tailscale-studio` 的 `efa0d8e0`。
 
 ## 目标
 
