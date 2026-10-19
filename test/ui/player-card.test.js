@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createStore } from '../../public/js/store.js';
 import { installCardSync, cardStore } from '../../public/js/ui/playerCard.js';
 import { options, h, Component } from '../../public/vendor/preact.module.js';
-import { LobbyScreen } from '../../public/js/screens/lobby.js';
+import { LobbyScreen, ProtocolSelect } from '../../public/js/screens/lobby.js';
 import { data } from '../../public/js/data.js';
 import { seatPortrait, cardAvatarUrl } from '../../public/js/ui/seatArt.js';
 import { filterCardOperators, OperatorPickerView } from '../../public/js/ui/opPicker.js';
@@ -138,6 +138,25 @@ test('room exposes edit actions only for the own human seat; teammates and spect
     assert.equal(nodes.find((v) => v.type === AvatarFrame).props.src, '/assets/b-avatar.png');
   }
   assert.equal(art, 1); assert.equal(avatar, 1);
+});
+
+test('room capacity facts allow host adjustment only before match start', () => {
+  const room = { mode: 'coop', capacity: 5, hostId: 'a', seats: [{ seat: 0, playerId: 'a' }] };
+  assert.equal(roomFacts(room, 'a').canSetCapacity, true);
+  assert.equal(roomFacts(room, 'b').canSetCapacity, false);
+  assert.equal(roomFacts({ ...room, inMatch: true }, 'a').canSetCapacity, false);
+});
+
+test('co-op creation lets the player select four through twenty seats and reports the choice', () => {
+  let selected;
+  const tree = ProtocolSelect({ card: { name: '同盟模拟', en: 'ALLIANCE' }, roomMode: 'coop', difficulty: 'HARD',
+    capacity: 4, onCapacity: (value) => selected = value, online: true, onStart() {}, onClose() {} });
+  const nodes = [...walk(tree)];
+  const select = nodes.find((v) => v.type === 'select' && v.props?.['aria-label'] === '同盟人数');
+  assert.ok(select);
+  assert.deepEqual(select.props.children.map((option) => option.props.value), Array.from({ length: 17 }, (_, i) => i + 4));
+  select.props.onChange({ currentTarget: { value: '12' } });
+  assert.equal(selected, 12);
 });
 
 test('reference operator picker searches localized names, filters rarity, clears to defaults and keeps modal focus', () => {

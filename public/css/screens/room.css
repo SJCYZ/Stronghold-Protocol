@@ -34,8 +34,10 @@
   object-position: center;
   transform: none;
 }
-.room-screen .seats { grid-template-rows: auto; align-content: start; overflow-y: auto; }
+.room-screen .seats { grid-template-columns: repeat(4, minmax(0, calc(3.8 * var(--ui-unit, 1rem)))); grid-template-rows: auto; grid-auto-rows: auto; align-content: start; overflow-y: auto; }
 .room-screen .rseat__actions { display: flex; justify-content: center; min-height: calc(0.54 * var(--ui-unit, 1rem)); }
+.room-capacity { display: inline-flex; align-items: center; gap: calc(0.08 * var(--ui-unit, 1rem)); color: var(--text-lo); font-size: calc(.14 * var(--utility-text, var(--t))); }
+.room-capacity select { max-width: calc(1.3 * var(--ui-unit, 1rem)); min-height: calc(0.36 * var(--ui-unit, 1rem)); padding: 0 calc(0.06 * var(--ui-unit, 1rem)); background: var(--bg-2); color: var(--text-hi); border: 1px solid var(--line-2); font: inherit; }
 .room-screen .rseat__plate { flex: none; }
 
 /* ---- invite key ---------------------------------------------------------------------------------------- */
@@ -75,9 +77,11 @@
   min-height: 0;
   display: grid;
   grid-template-columns: repeat(4, minmax(0, calc(3.8 * var(--ui-unit, 1rem))));
-  grid-template-rows: minmax(0, calc(6 * var(--ui-unit, 1rem)));
+  grid-template-rows: auto;
+  grid-auto-rows: auto;
   justify-content: center;
-  align-content: center;
+  align-content: start;
+  overflow-y: auto;
   gap: calc(0.3 * var(--ui-unit, 1rem));
   padding: calc(0.3 * var(--ui-unit, 1rem)) calc(0.6 * var(--ui-unit, 1rem)) calc(0.24 * var(--ui-unit, 1rem));
 }

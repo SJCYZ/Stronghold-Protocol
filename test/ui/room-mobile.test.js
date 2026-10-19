@@ -121,3 +121,21 @@ test('short rooms keep a seat region and scroll; portrait rows grow with their a
   assert.equal(property(['.seats', '.room-screen .seats'], 'grid-auto-rows', 390, 844), 'auto');
   assert.equal(property(['.room-screen .rseat__art'], 'aspect-ratio', 640, 360), '1 / 2');
 });
+
+test('twenty-seat rooms keep all seat cards in a responsive scrollable grid', () => {
+  for (const [width, height] of [[1920, 1080], [844, 390], [390, 844]]) {
+    assert.match(property(['.room-screen .seats'], 'grid-template-columns', width, height), /repeat\([42], minmax\(0, calc\(3\.[28] \* var\(--ui-unit\)\)\)\)/);
+    assert.equal(property(['.room-screen .rseat'], 'min-height', width, height), 'calc(3.5 * var(--ui-unit, 1rem))');
+    assert.equal(property(['.room-screen .seats'], 'grid-auto-rows', width, height), 'auto');
+    assert.equal(property(['.room-screen .seats'], 'overflow-y', width, height), 'auto');
+    assert.equal(property(['.room-screen--coop'], 'overflow-y', width, height), 'auto');
+  }
+});
+
+test('room capacity controls are only available to the host before a match', () => {
+  const source = read('public/js/screens/room.js');
+  assert.match(source, /canSetCapacity:\s*isHost\s*&&/);
+  assert.match(source, /room\.setCapacity/);
+  assert.match(source, /value=\$\{room\.capacity \|\| 4\}/);
+  assert.match(source, /disabled=\$\{!facts\.canSetCapacity \|\| !!busy\}/);
+});
