@@ -48,6 +48,17 @@ test('only the current human host can change active combat speed and it broadcas
   h.m.dispose();
 });
 
+test('a new Match starts at the default speed after the previous Match was adjusted', () => {
+  const previous = activeSolo();
+  assert.deepEqual(previous.m.handle('p_0', speedMessage(4.0)), { ok: true });
+  previous.m.dispose();
+
+  const next = makeMatch({ mode: 'solo', humans: 1, hostId: 'p_0', fake: true, clientCombat: true, clients: false });
+  assert.equal(next.m.gameSpeed, 2);
+  assert.equal(next.m.defaultGameSpeed, 2);
+  next.m.dispose();
+});
+
 test('a former host cannot change speed after host migration', () => {
   const h = makeMatch({ mode: 'coop', humans: 2, hostId: 'p_0', fake: true, clientCombat: true, clients: false });
   h.start().toPrep(1);
