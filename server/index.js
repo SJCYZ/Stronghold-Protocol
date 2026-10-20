@@ -33,7 +33,7 @@ import http from 'node:http';
 import { nameModerationFromEnv } from './nameModeration.js';
 import { createNameModerationRoute } from './http/nameModeration.js';
 import path from 'node:path';
-import { parseAssetCdn, parseEnvLimit, parseWsCompression } from './http/config.js';
+import { gameAuthConfigFromEnv, parseAssetCdn, parseEnvLimit, parseWsCompression } from './http/config.js';
 import { openStoreFromEnv } from './redis.js';
 import { Persister, restoreServer, SAVE_MS } from './persist.js';
 import { SimulationPool, workerSettings } from './workers/pool.js';
@@ -42,7 +42,7 @@ import { MatchWorkerPool } from './workers/matchPool.js';
 import { Announcements } from './announcements.js';
 import { createPublicApi } from './publicApi.js';
 import { sendJson, sendError } from './http/common.js';
-export { parseAssetCdn, parseEnvLimit, parseWsCompression } from './http/config.js';
+export { gameAuthConfigFromEnv, parseAssetCdn, parseEnvLimit, parseWsCompression } from './http/config.js';
 export { WS_DEFLATE_THRESHOLD } from './http/websocket.js';
 export { rewriteAssetPaths } from '../shared/cdn.js';
 

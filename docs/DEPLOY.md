@@ -15,6 +15,23 @@
 
 房间和对局只存在内存里，没有数据库和对局存档。重启服务器会结束正在进行的对局（包括断线后本可在 6 小时内回来继续的独立模拟）。自己安装或制作的插件、`plugins/config.json` 和工作台钥匙保存在磁盘上，请按需备份 `plugins/`。
 
+### WGS 游戏登录配置（后续版本启用）
+
+游戏 SSO 的服务端配置项如下；示例中的值均为占位符。`SP_WGS_URL` 是 WGS 源站基址，不含接口路径；`SP_WGS_CLIENT_SECRET` 仅保存在 Stronghold 服务端的受保护环境配置中。
+
+```dotenv
+SP_WGS_URL=https://wgs.example.invalid
+SP_WGS_CLIENT_ID=stronghold
+SP_WGS_CLIENT_SECRET=<由密钥管理器注入>
+SP_WGS_TIMEOUT_MS=5000
+```
+
+WGS 固定接口为 `GET /api/v1/game-sso/authorize`、`POST /api/v1/game-sso/token` 和 `POST /api/v1/game-sso/introspect`。Stronghold 登录入口和回调为 `GET /auth/wgs/start`、`GET /auth/wgs/callback`；访客凭分享码兑换接口为 `POST /auth/guest/redeem`，请求 JSON `{ "shareCode": "<share code>" }`，响应 `200` JSON `{ "authTicket": "<one-time ticket>" }`。访客票据 60 秒过期且一次性使用。首次 WebSocket `hello` 对账号和访客统一使用 `authTicket` 字段；成功后由服务端签发 Stronghold 本地 `token` 供重连，身份和权限范围仅由服务端票据记录决定。
+
+账号 OAuth 回调成功后，Stronghold 生成 60 秒有效的一次性 `authTicket`，通过标题页 URL fragment `#authTicket=<ticket>` 交给浏览器；fragment 不会随 HTTP 请求发送。WGS 授权码仅保留其 SHA-256 摘要于 Redis，key `game-sso:code:<sha256>`、TTL 60 秒，并在兑换时原子消费。单局分享码由房间内账号玩家通过 `room.invite.create` 生成或轮换，成功响应只返回一次明文分享码；轮换立即撤销旧码。四字符房间码只用于定位，不是授权凭据。
+
+WGS 账号资格是账号有效、未封禁、邮箱已验证且 QQ 已绑定；WGS 的 SMTP setup 状态不参与游戏登录资格。错误/过期/重复授权码返回 `400 invalid_grant`，错误 client 凭据返回 `401 invalid_client`，账号不符合资格返回 `403 account_not_eligible`；WGS introspect 对已失效会话返回 `200 { "active": false }`。WGS 接口超时由 `SP_WGS_TIMEOUT_MS` 限制，新登录和需要重新核验的操作失败关闭。真实 client secret 不得放在客户端、文档样例或版本库中。
+
 **房主帮 AI 试算布阵（可选）：**环境变量 `SP_BOT_REHEARSAL` 不设或设为 `server` 时，AI 布阵试算仍在服务器上（默认）。设为 `host` 后，当前房主的浏览器在整备阶段用同源的模块 Worker（`/js/battle/rehearsalWorker.js`，不绘图、不用 `eval`）比较 AI 队友的几种布阵，只把选中的序号发回；服务器直接采用，不再重算。房主掉线、换人、报错、答案不合法或超时（默认 3 秒）时，服务器用同一批候选自己算。整备先结束则取消试算、保留默认布阵，不延长回合。正式战斗和真人「AI 托管」不受影响。开了玩法插件的房间不走这条路：对局在内容组合自己的进程里，仍由服务器试算，避免浏览器用错数据包或绕过脚本额度。没有可用房主时也不会减少服务器负担。浏览器会多算一些，耗时取决于房主设备和局面。这个接口（任务、答案序号、超时、回退到服务器）以后可以换成本机或外部计算，当前版本不会对外发起网络请求。
 
 ## 1. Windows 小主机：一步步

@@ -30,6 +30,16 @@ const LOBBY_OPTION_KEYS = ['lobbyGraceMs', 'matchmakingTickMs', 'maxRooms', 'max
  */
 export const DEFAULT_BIND_HOST = '::';
 
+/** Optional WGS SSO settings. Secrets and client registrations are read only by the server. */
+export function gameAuthConfigFromEnv(env = process.env) {
+  return {
+    wgsUrl: String(env.SP_WGS_URL ?? '').trim().replace(/\/+$/, ''),
+    wgsClientId: String(env.SP_WGS_CLIENT_ID ?? '').trim(),
+    wgsClientSecret: String(env.SP_WGS_CLIENT_SECRET ?? ''),
+    wgsTimeoutMs: parseEnvLimit(env.SP_WGS_TIMEOUT_MS, 5000, 'SP_WGS_TIMEOUT_MS'),
+  };
+}
+
 /**
  * Where to listen: the `port` / `host` options, else PORT / HOST, else port 3000 on DEFAULT_BIND_HOST.
  * An empty host is treated as unset.
