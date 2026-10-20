@@ -43,6 +43,7 @@ function nextUniteLeaks(plan, result) {
     if (!leak || typeof leak.enemyKey !== 'string' || !leak.sourcePlayerId) continue;
     const queue = scheduled.get(uniteUnspawnedKey(leak));
     let source;
+    // loop-cap: each pass consumes one candidate from the finite result-derived queue; this loop adds none.
     while (queue?.length && !source) {
       const candidate = queue.shift();
       if (!used.has(candidate)) source = candidate;
@@ -236,10 +237,11 @@ export class MatchUnite {
    * 联防 (user playtest #6 item 7; PRTS 卫戍协议/帮助 "防卫失败的玩家可通过上方信息栏确认自身所属敌人的剩余数量"): how many of
    * a leaker's enemies are still standing on the 联防 field — not spawned yet, alive, or through the objective again —
    * plus its leaks that could not re-enter: what settle() charges it (before the per-round cap) if the 联防 ended now.
-   * It falls as the helpers strike them down and rises when one splits or summons (the children carry the leaker).
+   * It falls as the helpers strike them down; a split or a summon raises nothing (a 联防 field tags its runtime spawns
+   * `uniteRuntime`, spawns.js — they never crossed the leaker's own goal, so they are neither billed nor shown here).
    * Live from the field (client run: the authority's b.progress `left`; server run: the headless timeline on the field
-   * clock, or the streamed battle itself), clamped to what settlement can bill that leaker (fields.js uniteBillBounds:
-   * sent in + the offspring bound, validateClientResult's budget); exact once the field has its result (unite.js
+   * clock, or the streamed battle itself), clamped to what the escaped wave sent that leaker (fields.js uniteBillBounds:
+   * keySourceCounts only — the same set settlement bills); exact once the field has its result (unite.js
    * uniteSurvivors; a synthetic result charges the own leaks, as settle()). null for anyone but a leaker of the running
    * 联防.
    * @returns {number|null}

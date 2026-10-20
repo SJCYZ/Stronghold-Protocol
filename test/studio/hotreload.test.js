@@ -91,7 +91,7 @@ describe('rooms follow a plugin changed on disk', () => {
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'sp-hotreload-'));
     plugins = path.join(tmp, 'plugins');
     for (const id of ['solo-skin', 'coop-skin', 'match-skin', 'quiet-skin', 'mend-skin']) writePlugin(path.join(plugins, id), cosmetic({ assets: { chars: { char_102_texas: { avatar: 'a.png' } } } }), { 'a.png': png(2, 2) });
-    srv = await startServer({ port: 0, host: '127.0.0.1', quiet: true, pluginsDir: plugins, assetIndex: false, MatchClass: StubMatch });
+    srv = await startServer({ port: 0, host: '127.0.0.1', quiet: true, pluginsDir: plugins, MatchClass: StubMatch });
   });
   after(async () => {
     await Promise.all(open.map((c) => c.terminate().catch(() => {})));

@@ -68,7 +68,7 @@ test('raw HTTP traversal cannot intercept core health or static responses',async
   const old = process.env.SP_PLUGIN_SCRIPTS;process.env.SP_PLUGIN_SCRIPTS='trusted';
   t.after(() => {if (old === undefined) delete process.env.SP_PLUGIN_SCRIPTS;else process.env.SP_PLUGIN_SCRIPTS=old;});
   let server;
-  try {server = await startServer({host:'127.0.0.1',port:0,pluginsDir:f.pluginsDir,quiet:true,studio:false,assetIndex:false});}
+  try {server = await startServer({host:'127.0.0.1',port:0,pluginsDir:f.pluginsDir,quiet:true,studio:false});}
   catch (e) {if (e.code === 'EPERM') {t.skip('未运行：此环境不允许监听 localhost');return;}throw e;}
   t.after(() => server.close());
   for (const url of bypasses) {

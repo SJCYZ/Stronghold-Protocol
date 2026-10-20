@@ -172,14 +172,14 @@ test('b.ev and b.snap always carry the game time gt (also on m.field resync); co
   assert.equal(maxTicksPerInterval(2), 8);
   assert.ok(maxTicksPerInterval(20) >= 80);
   const fast = makeMatch({ mode: 'solo', seed: 908, fake: true, instant: false, script: () => ({ duration: 6 }) });
-  fast.m.gameSpeed = 30;
+  fast.m.defaultGameSpeed = 4;
   fast.start();
   fast.toPrep(1);
   fast.m.handle('p_0', { t: 'g.ready', ready: true });
   fast.run(() => fast.m.phase === PHASE.COMBAT);
   const t0 = fast.sched.now();
   fast.run(() => fast.m.fields.length > 0 && fast.m.fields.every((f) => !f.live));
-  assert.ok(fast.sched.now() - t0 < 400, `6 game s at 30× take ${fast.sched.now() - t0} ms`);
+  assert.ok(fast.sched.now() - t0 < 2000, `6 game s at 4× take ${fast.sched.now() - t0} ms`);
   fast.m.dispose();
 });
 

@@ -142,8 +142,13 @@ test('the server: GET /packs/index.json lists the packs live, GET /packs/<id>/<f
     assert.equal(raw, 404);
     assert.equal((await get('/i18n/qaa.json')).status, 200, 'a single-file pack: the language folder');
     put(root, 'public/i18n/qag.json', { 开始: 'G' });
-    await new Promise((r) => setTimeout(r, 1100)); // the registry looks again after a second
-    assert.ok((await (await get('/packs/index.json')).json()).packs.some((p) => p.id === 'qag'), 'a dropped pack shows on the next request');
+    let found = false;
+    for (let i = 0; i < 30 && !found; i++) {
+      const index = await (await get('/packs/index.json')).json();
+      found = index.packs.some((p) => p.id === 'qag');
+      if (!found) await new Promise((r) => setTimeout(r, 100));
+    }
+    assert.ok(found, 'a dropped pack appears after the background registry refresh');
   } finally {
     await srv.close();
     fs.rmSync(root, { recursive: true, force: true });

@@ -307,7 +307,7 @@ describe('match UI of a not-owned chess', () => {
     // PR #73's 选中干员 voice (DetailPanel `voice`, in battle): the stand-in speaks, like its battle lines (audio.js keys
     // them by UnitInfo spine, the stand-in's model) — never the operator it replaces
     assert.match(readFileSync(path.join(ROOT, 'public/js/ui/detailPanel.js'), 'utf8'),
-      /const selectChar = voice && detail\?\.type === 'chess' \? detail\.standIn\?\.charId \|\| detail\.chess\?\.charId \|\| null : null;/);
+      /const selectChar = voice && detail\?\.type === 'chess' \? detail\.standIn\?\.assets\?\.voice \|\| detail\.standIn\?\.charId \|\| detail\.chess\?\.assets\?\.voice \|\| detail\.chess\?\.charId \|\| null : null;/);
   });
 
   test('own prep pieces with stand-ins get a small 「替补」 tag (hand, temp, board); others none', () => {
@@ -376,13 +376,13 @@ describe('match UI of a not-owned chess', () => {
     assert.match(src, /const si = chess && standInList\.includes\(chess\.baseId \|\| chess\.chessId\) \? data\.standIn\(piece\.id\) : null;/);
     assert.doesNotMatch(src, /area === 'board' && chess && standInList/, 'not only on the board');
     assert.match(src, /standInList = Array\.isArray\(src\.standIns\)/);
-    assert.match(src, /const sig = `\$\{info\.kind\}\|\$\{info\.defId\}\|\$\{info\.golden \? 1 : 0\}\|\$\{info\.spine \|\| ''\}\|\$\{info\.skin \|\| ''\}`/);
+    assert.match(src, /const sig = `\$\{info\.kind\}\|\$\{info\.defId\}\|\$\{info\.golden \? 1 : 0\}\|\$\{info\.spine \|\| ''\}\|\$\{info\.skin \|\| ''\}\|\$\{info\.localSkin \|\| ''\}`/);
     assert.match(readFileSync(path.join(ROOT, 'public/js/render/app/info.js'), 'utf8'), /standInFor: typeof u\.standInFor === 'string'/);
     // the DOM fallback field draws every own piece of it with the stand-in's avatar and name
     const ff = readFileSync(path.join(ROOT, 'public/js/ui/fallbackField.js'), 'utf8');
     assert.match(ff, /const replacement = ownSi\(chess\) \|\| ownDiy\(chess\)/);
     assert.match(ff, /chessAvatarUrl\(mm, replacement \|\| chess\)/);
-    assert.match(ff, /const skin = replacement \? null : visibleSkin\(p.skin, st.settings\)/);
+    assert.match(ff, /const skin = replacement \? null : visibleOperatorSkin\(p.skin, st.settings\) \|\| visibleSkin\(p.localSkin, st.settings\)/);
     assert.match(ff, /\(ownSi\(chess\) \|\| ownDiy\(chess\) \|\| chess\)\?\.name/);
   });
 });

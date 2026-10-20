@@ -44,9 +44,17 @@ const CUTS = {
 };
 
 /** Letter grade of one stat ('—' when the enemy has none: no attack, no movement). @param {string} key @param {any} v */
-export function enemyGrade(key, v) {
-  const spec = CUTS[key];
+export function enemyGrade(key, v, levels = data.get('factions')?.handbookLevels) {
   const n = Number(v);
+  if (Array.isArray(levels)) {
+    if (v == null || !Number.isFinite(n)) return '—';
+    for (const level of levels) {
+      const band = level?.[key];
+      if (Array.isArray(band) && n >= band[0] && (band[1] == null || n < band[1])) return level.level;
+    }
+    return '—';
+  }
+  const spec = CUTS[key];
   if (!spec || v == null || !Number.isFinite(n)) return '—';
   const low = !Array.isArray(spec) && spec.low;
   const cuts = Array.isArray(spec) ? spec : spec.cuts;

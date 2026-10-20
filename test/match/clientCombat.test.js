@@ -294,12 +294,12 @@ test('Final Assault: leaks and leader LP effects from b.progress drain the team 
   const m = h.m;
   h.autoHumans();
   h.drive(() => m.phase === PHASE.FINAL_ASSAULT);
+  const t0 = m.sched.now();
   const lp0 = m.teamLp;
   h.sched.advance(4000);
   assert.equal(m.teamLp, lp0 - 5, 'leak lpr 3 + leader effect 2');
   const lp1 = m.teamLp;
   // All-human teams start overtime at the visible level countdown, without the AI team's extra 30 seconds.
-  const t0 = m._bossStartAt;
   const pub = () => h.bc.filter((x) => x.t === 'm.public').pop();
   m.flush(true);
   assert.equal(pub().deadline, t0 + 120000, 'the HUD counts the boss level\'s 120 s down');

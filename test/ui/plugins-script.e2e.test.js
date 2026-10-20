@@ -10,7 +10,7 @@ test('two pages consent separately, refusal gates start, accepted script battles
  f.put('page-code','export default () => {};',{class:'trusted',permissions:['trusted.page'],entry:{client:'page.js'}},{'page.js':'globalThis.__TRUSTED_PAGE_LOADED__ = true;'});
  const previous=process.env.SP_PLUGIN_SCRIPTS;process.env.SP_PLUGIN_SCRIPTS='trusted';
  let srv;
- try {srv=await startServer({port:0,host:'127.0.0.1',quiet:true,pluginsDir:f.pluginsDir,assetIndex:false,matchHost:{matchOptions:{verify:'all',timerScale:0.1,combatSpeed:16,botRehearsal:0}}});}
+ try {srv=await startServer({port:0,host:'127.0.0.1',quiet:true,pluginsDir:f.pluginsDir,matchHost:{matchOptions:{verify:'all',timerScale:0.1,combatSpeed:16,botRehearsal:0}}});}
  finally {if(previous===undefined)delete process.env.SP_PLUGIN_SCRIPTS;else process.env.SP_PLUGIN_SCRIPTS=previous;}
  t.after(()=>srv.close());
  const policy=(await fetch(srv.url)).headers.get('content-security-policy');

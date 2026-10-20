@@ -19,7 +19,7 @@ describe('Forge import in the studio page', { skip: !ENABLED && 'set SP_E2E=1 (a
     const plugins = path.join(tmp, 'plugins');
     fs.mkdirSync(plugins);
     const { startServer } = await import('../../server/index.js');
-    const srv = await startServer({ port: 0, host: '127.0.0.1', quiet: true, pluginsDir: plugins, assetIndex: false });
+    const srv = await startServer({ port: 0, host: '127.0.0.1', quiet: true, pluginsDir: plugins });
     const P = (await import('puppeteer-core')).default;
     const browser = await P.launch({ executablePath: CHROME, headless: true, args: ['--no-sandbox', '--no-first-run'] });
     try {
@@ -64,7 +64,7 @@ describe('Forge import in the studio page', { skip: !ENABLED && 'set SP_E2E=1 (a
     const plugins = path.join(tmp, 'plugins');
     fs.mkdirSync(plugins);
     const { startServer } = await import('../../server/index.js');
-    const srv = await startServer({ port: 0, host: '127.0.0.1', quiet: true, pluginsDir: plugins, assetIndex: false });
+    const srv = await startServer({ port: 0, host: '127.0.0.1', quiet: true, pluginsDir: plugins });
     const P = (await import('puppeteer-core')).default;
     const browser = await P.launch({ executablePath: CHROME, headless: true, args: ['--no-sandbox', '--no-first-run'] });
     try {
@@ -115,7 +115,7 @@ describe('Forge import in the studio page', { skip: !ENABLED && 'set SP_E2E=1 (a
     const plugins = path.join(tmp, 'plugins');
     fs.mkdirSync(plugins);
     const { startServer } = await import('../../server/index.js');
-    const srv = await startServer({ port: 0, host: '127.0.0.1', quiet: true, pluginsDir: plugins, assetIndex: false });
+    const srv = await startServer({ port: 0, host: '127.0.0.1', quiet: true, pluginsDir: plugins });
     const P = (await import('puppeteer-core')).default;
     const browser = await P.launch({ executablePath: CHROME, headless: true, args: ['--no-sandbox', '--no-first-run'] });
     try {

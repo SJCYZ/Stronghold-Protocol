@@ -59,7 +59,7 @@ describe('room.setPlugins (P1a: cosmetic plugins)', () => {
     writePlugin(path.join(plugins, 'top'), cosmetic({ requires: { base: '*' }, assets: { chars: { char_102_texas: { avatar: 't.png' } } } }), { 't.png': png(2, 2) });
     writePlugin(path.join(plugins, 'fresh'), cosmetic({ assets: { chars: { char_112_siege: { avatar: 'f.png' } } } }), { 'f.png': png(2, 2, [1, 1, 1, 255]) });
     writePlugin(path.join(plugins, 'later'), cosmetic({ assets: { chars: { char_112_siege: { portrait: 'l.png' } } } }), { 'l.png': png(2, 2, [5, 5, 5, 255]) });
-    srv = await startServer({ port: 0, host: '127.0.0.1', quiet: true, pluginsDir: plugins, MatchClass: RecordingStub, assetIndex: false });
+    srv = await startServer({ port: 0, host: '127.0.0.1', quiet: true, pluginsDir: plugins, MatchClass: RecordingStub });
   });
   after(async () => {
     await Promise.all(open.map((c) => c.terminate().catch(() => {})));
@@ -307,7 +307,7 @@ describe('room content sets (P1c: gameplay plugins)', () => {
     const tpl = path.join(ROOT, 'plugins', '_template', 'content');
     writePlugin(path.join(plugins, 'data-demo'), content({ operators: ['operators/guard.json'] }), { 'operators/guard.json': fs.readFileSync(path.join(tpl, 'operators', 'guard.json'), 'utf8') });
     writePlugin(path.join(plugins, 'skin'), cosmetic({ assets: { chars: { char_102_texas: { avatar: 'a.png' } } } }), { 'a.png': png(4, 4) });
-    srv = await startServer({ port: 0, host: '127.0.0.1', quiet: true, pluginsDir: plugins, MatchClass: RecordingStub, assetIndex: false,
+    srv = await startServer({ port: 0, host: '127.0.0.1', quiet: true, pluginsDir: plugins, MatchClass: RecordingStub,
       matchHost: { matchModule: FIXTURE } });
   });
   after(async () => {
@@ -628,7 +628,7 @@ describe('the server owner\'s policy and the content-set limit (P1c)', () => {
     writePlugin(path.join(plugins, 'one'), content(), { 'p.json': { patch: 1, ops: [] } });
     writePlugin(path.join(plugins, 'two'), content(), { 'p.json': { patch: 1, ops: [] } });
     if (config) fs.writeFileSync(path.join(plugins, 'config.json'), JSON.stringify(config));
-    const s = await startServer({ port: 0, host: '127.0.0.1', quiet: true, pluginsDir: plugins, MatchClass: RecordingStub, assetIndex: false });
+    const s = await startServer({ port: 0, host: '127.0.0.1', quiet: true, pluginsDir: plugins, MatchClass: RecordingStub });
     servers.push(s);
     return s;
   }

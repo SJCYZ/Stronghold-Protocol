@@ -16,15 +16,15 @@ const manifest = { chars: { char_x: {
   skins: { [SKIN]: { avatar: '/assets/skin.png', spine: { front: side('skin'), back: side('skin-back') } } },
 } } };
 
-test('a disabled viewer never requests other players skin art; live toggle invalidates a pending skin load', async (t) => {
+test('plugin skin visibility follows otherSkins, independent of the official skin toggle', async (t) => {
   const lookups = createAssets({ manifest });
   const images = [], models = [], released = [], pending = [];
   const assets = { ...lookups, image(url) { images.push(url); return Promise.resolve(null); },
     spine: { acquire(entry) { models.push(entry.skel); return new Promise((_, reject) => pending.push(reject)); },
       release(entry) { released.push(entry.skel); } },
   };
-  const settings = { skinsEnabled: false };
-  const v = new UnitView(fakeViewCtx(fake.P, { assets, settings }), {
+  const settings = { skinsEnabled: false, otherSkins: false };
+  const v = new UnitView(fakeViewCtx(fake.P, { assets, settings, myPlayerId: 'ME' }), {
     id: 1, side: 'ally', kind: 'op', ownerId: 'OTHER', defId: 'chess_x', spine: 'char_x', avatar: 'char_x_2',
     maxHp: 1000, dir: 'UP', skin: SKIN,
   });
@@ -33,10 +33,10 @@ test('a disabled viewer never requests other players skin art; live toggle inval
   assert.deepEqual(images, ['/assets/default2.png']);
   assert.deepEqual(models, ['/assets/default-back.skel']);
   v.hp = 450; v.sp = 23; v.alive = false;
-  settings.skinsEnabled = true; v.refreshSkin(); await Promise.resolve();
+  settings.otherSkins = true; v.refreshSkin(); await Promise.resolve();
   assert.equal(images.at(-1), '/assets/skin.png');
   assert.equal(models.at(-1), '/assets/skin.skel', 'downed unit uses the skins own Front without a Back die clip');
-  settings.skinsEnabled = false; v.refreshSkin(); await Promise.resolve();
+  settings.otherSkins = false; v.refreshSkin(); await Promise.resolve();
   assert.equal(images.at(-1), '/assets/default2.png');
   assert.equal(models.at(-1), '/assets/default.skel');
   assert.equal(v.hp, 450); assert.equal(v.sp, 23); assert.equal(v.alive, false);
@@ -47,6 +47,22 @@ test('a disabled viewer never requests other players skin art; live toggle inval
   assert.equal(models.length, count);
   assert.equal(released.length, 2);
   v.destroy(); pending[2](new Error('cancelled')); await Promise.resolve();
+});
+
+test('official local skin visibility still follows skinsEnabled', () => {
+  const lookups = createAssets({ manifest });
+  const assets = { ...lookups, image: () => Promise.resolve(null), spine: { acquire: () => Promise.resolve(null), release() {} } };
+  const settings = { skinsEnabled: false, otherSkins: true };
+  const v = new UnitView(fakeViewCtx(fake.P, { assets, settings, myPlayerId: 'ME' }), {
+    id: 2, side: 'ally', kind: 'op', ownerId: 'OTHER', defId: 'chess_x', spine: 'char_x', avatar: 'char_x_2',
+    maxHp: 1000, localSkin: SKIN,
+  });
+  assert.equal(v._displaySkin, null);
+  settings.skinsEnabled = true; v.refreshSkin();
+  assert.equal(v._displaySkin, SKIN);
+  settings.skinsEnabled = false; v.refreshSkin();
+  assert.equal(v._displaySkin, null);
+  v.destroy();
 });
 
 test('installed skin loads carry a default-model fallback; broken skin Front falls back immediately', () => {

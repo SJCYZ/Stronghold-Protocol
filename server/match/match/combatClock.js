@@ -170,6 +170,7 @@ export class MatchCombatClock {
     if (!this.phase || this.paused || this.disabled || this.dispatching) return;
     this.dispatching = true;
     try {
+      // loop-cap: _invoke exhausts the phase callback budget even if a callback reschedules immediately.
       while (this.tasks.length && !this.disabled) {
         this.tasks.sort((a, b) => a.at - b.at || a.id - b.id);
         const task = this.tasks[0];

@@ -51,12 +51,6 @@ describe('cosmetic plugins in the browser (P1a)', { skip: !ENABLED && 'set SP_E2
       assets: { chars: { [personalId]: { avatar: 'art/green.png' } } } }), { 'art/green.png': png(8, 8, [0, 255, 0, 255]) });
     const { startServer } = await import('../../server/index.js');
     const srv = await startServer({ port: 0, host: '127.0.0.1', quiet: true, pluginsDir: tmp });
-    // the content-hash index (built ~1 s after the start): the page then loads the served manifest's /assets/~<hash>/ URLs
-    for (const t0 = Date.now(); Date.now() - t0 < 20000;) {
-      const h = await fetch(`${srv.url}/healthz?traffic=1`).then((r) => r.json(), () => null);
-      if (!h?.assetHashes || h.assetHashes.ready) break;
-      await sleep(150);
-    }
     const P = (await import('puppeteer-core')).default;
     const host = new Client(P, srv.url, 'host', { prefix: 'plugins', w: 1600, h: 900 });
     const guest = new Client(P, srv.url, 'guest', { prefix: 'plugins', w: 1600, h: 900 });

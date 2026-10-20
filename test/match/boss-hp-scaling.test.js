@@ -1,5 +1,5 @@
-// The Final Assault / Hidden Core leader pool = bloodPoint[difficulty] × the players alive when the fight starts (solo
-// × 1) — the owner's decision of 2026-10-06, adopting PR #209 by @qingjingshenghuo (these tests are ported from it);
+// The Final Assault / Hidden Core leader pool = bloodPoint[difficulty] × min(players alive, 4) (solo × 1) — the owner's
+// decision of 2026-10-06, adopting PR #209 by @qingjingshenghuo (these tests are ported from it);
 // it replaces the fixed pool of 「保持固定血量」 (DESIGN §20.9 / §20.10), which config bossHpScale still restores
 // (DESIGN §25.13.4, server/match/gamedata.js bossPoolShareOf).
 import { test } from 'node:test';
@@ -17,7 +17,7 @@ test('every leader and difficulty: bloodPoint × the players alive (co-op), × 1
     const solo = new GameData(DATA, `mode_single_${difficulty.toLowerCase()}`);
     for (const id of Object.keys(DATA.bosses)) {
       const base = DATA.bosses[id].bloodPoint[difficulty];
-      for (const n of [1, 2, 3, 4, 5, 20]) assert.equal(bossPoolHp(gd, id, n), base * n, `${id} ${difficulty} ×${n}`);
+      for (const n of [1, 2, 3, 4, 5, 20]) assert.equal(bossPoolHp(gd, id, n), base * Math.min(n, 4), `${id} ${difficulty} ×${n}`);
       for (const n of [1, 2, 4, 5, 20]) assert.equal(bossPoolHp(solo, id, n), base, `${id} ${difficulty} solo ×${n}`);
     }
   }
@@ -67,7 +67,7 @@ test('mode scale overrides the global scale; GameData and the plain fallback agr
     const gd = new GameData(data, modeId);
     const base = data.bosses.boss_8.bloodPoint.ABYSS;
     for (const n of [1, 2, 3, 4, 5, 20]) {
-      const expected = gd.isSolo ? base : base * n;
+      const expected = gd.isSolo ? base : base * Math.min(n, 4);
       const plain = { boss: (id) => gd.boss(id), difficulty: gd.difficulty, mode: gd.mode, config: gd.config, isSolo: gd.isSolo };
       assert.equal(gd.bossPoolHp('boss_8', n), expected);
       assert.equal(bossPoolHp(plain, 'boss_8', n), expected);

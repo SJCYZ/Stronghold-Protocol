@@ -1309,6 +1309,12 @@
 .plugtag .icon { width: calc(.16 * var(--ui-unit, 1rem)); height: calc(.16 * var(--ui-unit, 1rem)); }
 .plugtag.is-modded { color: #ffb066; border-color: rgba(255, 159, 67, .6); background: rgba(255, 159, 67, .1); }
 .plugtag--static { cursor: default; }
+.plugtag--rules { height: auto; flex-wrap: wrap; padding-top: .04rem; padding-bottom: .04rem; max-width: 6rem; text-align: left; }
+.plugtag__rules { flex-basis: 100%; font-size: calc(.11 * var(--t)); letter-spacing: 0; white-space: normal; }
+.plugpanel { display: flex; flex-direction: column; gap: .12rem; }
+.plugpanel__lead { display: flex; align-items: center; flex-wrap: wrap; gap: .1rem; color: var(--text-md); font-size: calc(.15 * var(--t)); line-height: 1.7; }
+.plugpanel__list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .08rem; max-height: 4.6rem; overflow: auto; }
+.plugrow { display: flex; align-items: flex-start; gap: .14rem; padding: .1rem .12rem; border: 1px solid var(--line); background: rgba(0, 0, 0, .25); }
 .plugpanel { display: flex; flex-direction: column; gap: calc(.12 * var(--ui-unit, 1rem)); }
 .plugpanel__lead { display: flex; align-items: center; flex-wrap: wrap; gap: calc(.1 * var(--ui-unit, 1rem)); color: var(--text-md); font-size: calc(.15 * var(--utility-text, var(--t))); line-height: 1.7; }
 .plugpanel__list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: calc(.08 * var(--ui-unit, 1rem)); max-height: calc(4.6 * var(--ui-unit, 1rem)); overflow: auto; }
@@ -1326,8 +1332,22 @@
 .plugpanel__reapply { display: flex; flex-wrap: wrap; align-items: center; gap: calc(.08 * var(--ui-unit, 1rem)) calc(.12 * var(--ui-unit, 1rem)); }
 .ui-slot { display: flex; flex-direction: column; gap: calc(.04 * var(--ui-unit, 1rem)); min-width: 0; }
 .ui-slot:empty { display: none; }
-.ui-slot__frame { width: 100%; border: 0; background: transparent; color-scheme: normal; }
-.gm__ui-slot { position: absolute; z-index: 6; right: calc(.16 * var(--ui-unit, 1rem)); bottom: calc(.7 * var(--ui-unit, 1rem)); width: calc(2.6 * var(--ui-unit, 1rem)); pointer-events: auto; }
+/* [ASSUMED] color-scheme: dark clears the iframe's opaque white canvas. A background the plugin paints still shows. */
+.ui-slot__frame { width: 100%; border: 0; background: transparent; color-scheme: dark; }
+.ui-slot__tabs { display: flex; flex-wrap: wrap; gap: .02rem; }
+.ui-slot__tab {
+  flex: 1 1 auto; min-width: 0; max-width: 100%; padding: .02rem .04rem; border: 1px solid var(--line-2);
+  background: rgba(0, 0, 0, .45); color: var(--text-md); font-size: calc(.11 * var(--t)); cursor: pointer;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ui-slot__tab[aria-selected="true"] { color: var(--text-hi); border-color: var(--mint-700); }
+/* [ASSUMED] The hand's top is the dock clearance 4.76rem. The slot sits just above it, inset from the
+   effects column, and its height stops under the ready button. Both 1280×720 and 1920×1080 are 19.2×10.8rem. */
+.gm__ui-slot {
+  position: absolute; z-index: 6; right: calc(.92 * var(--ui-unit, 1rem)); bottom: calc(4.88 * var(--ui-unit, 1rem)); width: calc(2.6 * var(--ui-unit, 1rem));
+  max-height: calc(100% - 6.58 * var(--ui-unit, 1rem)); overflow: auto; pointer-events: auto;
+}
+
 .plugpanel__reapply .set-hint { margin: 0; }
 /* gameplay plugins (DESIGN §32.6 P1c): the unofficial marks (tag, panel rows, UnofficialMark of the briefing / HUD / result),
    the room's plugin modes and this page's check of the room's content set */
@@ -1344,6 +1364,12 @@
 .modmark {
   display: inline-flex; align-items: center; height: calc(.26 * var(--ui-unit, 1rem)); padding: 0 calc(.1 * var(--ui-unit, 1rem)); border: 1px solid rgba(255, 106, 61, .75);
   background: rgba(255, 106, 61, .14); color: #ff8a5c; font-size: calc(.13 * var(--utility-text, var(--t))); font-weight: 800; letter-spacing: .08em;
+  white-space: nowrap;
+}
+.modmark--compact { height: .2rem; padding: 0 .06rem; font-size: calc(.11 * var(--t)); }
+.testmark {
+  display: inline-flex; align-items: center; height: .26rem; padding: 0 .1rem; border: 1px solid rgba(232, 184, 74, .8);
+  background: rgba(232, 184, 74, .16); color: #e8b84a; font-size: calc(.13 * var(--t)); font-weight: 800; letter-spacing: .08em;
   white-space: nowrap;
 }
 .modmark--compact { height: calc(.2 * var(--ui-unit, 1rem)); padding: 0 calc(.06 * var(--ui-unit, 1rem)); font-size: calc(.11 * var(--utility-text, var(--t))); }

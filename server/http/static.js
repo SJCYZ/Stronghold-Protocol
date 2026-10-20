@@ -38,7 +38,7 @@ import { BackgroundClient } from '../workers/backgroundClient.js';
 //                of a folder on its way, is never followed, wherever it leads). A hash naming its current bytes (its own
 //                first 8 hex digits, or its Spine model's) answers `immutable` for a year while the file keeps the size,
 //                mtime, inode and ctime it was hashed with; any other hash, or a file changed since the scan, the current
-//                file with `no-cache` — as for /assets/~<hash>/ below — and a changed file has the registry read the
+//                file with `no-cache`, and a changed file has the registry read the
 //                folders again. An audio file is also served without its extension — /p/<id>/<hash8>/<path without
 //                .mp3 / .ogg> — for the same download managers as /media/ below (public/js/media.js mediaUrl; when both
 //                a .mp3 and a .ogg are listed, the one whose hash the URL names)
@@ -102,7 +102,7 @@ const CS_FILE = /^\/cs\/([0-9a-f]{16})\/([A-Za-z0-9._\/-]{1,200})$/;
  *   packs: the server pack registry; runtime CDN and Vite behavior remain branch-owned.
  * @returns {(req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse, rawPath: string, query: string) => Promise<void>}
  */
-export function createStaticHandler({ publicDir, dataDir, sharedDir, simDir = path.join(ROOT, 'server', 'sim'), packsDir = path.join(ROOT, 'packs'), pluginsDir = path.join(path.dirname(path.resolve(packsDir)), 'plugins'), packs = null, content = null, visual = null, contents = null, log = noopLog, cdnBase = '', dataCdnBase = '', resourcePackRoutes = [], clientBuild = true }) {
+export function createStaticHandler({ publicDir, dataDir, sharedDir, simDir = path.join(ROOT, 'server', 'sim'), packsDir = path.join(ROOT, 'packs'), pluginsDir = path.join(path.dirname(path.resolve(packsDir)), 'plugins'), packs = null, content = null, visual = null, contents = null, log = noopLog, cdnBase = '', dataCdnBase = '', resourcePackRoutes = [], clientBuild = true, views = null }) {
   const registry = packs || createPluginRegistry({ publicDir, dataDir, packsDir, pluginsDir }, { log: /** @type {any} */ (log) });
   const cdn = typeof cdnBase === 'string' ? cdnBase : '';
   const builtIndex = path.join(publicDir, 'build', 'index.html');
@@ -112,6 +112,8 @@ export function createStaticHandler({ publicDir, dataDir, sharedDir, simDir = pa
   /** @type {Map<string, { mtimeMs: number, size: number, body: Buffer }>} rewritten manifests (per file path) */
   const cdnCache = new Map();
   const cdnPending = new Map();
+  const viewCdnCache = new Map();
+  const viewCdnPending = new Map();
   const manifestEncoder = new BackgroundClient(new URL('../workers/manifestEncode.js', import.meta.url));
   const sets = visual || (typeof registry.pluginFile === 'function' ? createVisualSets({ registry, log }) : null);
   let vanilla = content;
@@ -385,7 +387,41 @@ export function createStaticHandler({ publicDir, dataDir, sharedDir, simDir = pa
       await serveIndex(req, res, absPath, stat, segments, query);
       return;
     }
-    // assets CDN: the manifests are rewritten on the way out, so every client keeps requesting /data/assets.json
+    // Merge optional Forge operator art into the served manifest. CDN rewriting stays in the background worker.
+    if (mount.name === 'data' && segments.length === 1 && CDN_MANIFESTS.has(segments[0].toLowerCase()) && views) {
+      const view = await views.get(segments[0].toLowerCase());
+      if (view) {
+        let body = view.body;
+        let hash = view.hash;
+        if (cdn) {
+          const identity = view.hash + '\0' + cdn;
+          const cached = viewCdnCache.get(decoded);
+          body = cached?.identity === identity ? cached.body : null;
+          if (!body) {
+            let pending = viewCdnPending.get(identity);
+            if (!pending) {
+              pending = manifestEncoder.request({ json: view.body, cdn })
+                .then((bytes) => Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength))
+                .finally(() => viewCdnPending.delete(identity));
+              viewCdnPending.set(identity, pending);
+            }
+            try {
+              body = await pending;
+              viewCdnCache.set(decoded, { identity, body });
+            } catch (e) {
+              log.error('[http] cannot rewrite served ' + segments[0] + ' for the CDN', e);
+              sendError(req, res, 500, '服务器内部错误 · Internal error');
+              return;
+            }
+          }
+          const cdnHash = createHash('sha256').update(cdn).digest('hex').slice(0, 8);
+          hash = view.hash + '-' + cdnHash;
+        }
+        await serveHashedBuffer(req, res, { body, hash, type: MIME['.json'], cacheControl: 'no-cache', key: 'view:' + decoded, cache: gzipCache });
+        return;
+      }
+    }
+    // Existing file-backed CDN rewrite remains the fallback when no merged view is available.
     if (cdn && mount.name === 'data' && segments.length === 1 && CDN_MANIFESTS.has(segments[0].toLowerCase())) {
       const cached = cdnCache.get(absPath);
       let body = cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size
@@ -413,7 +449,7 @@ export function createStaticHandler({ publicDir, dataDir, sharedDir, simDir = pa
     await serveFile(req, res, absPath, stat, mount.name, segments, query, gzipCache, log);
   };
   serveStatic.close = () => manifestEncoder.close();
-  serveStatic.cacheStats = () => ({ gzipBytes: gzipCache.total, gzipEntries: gzipCache.map.size, gzipLimitBytes: gzipCache.maxTotal, gzipInflight: gzipCache.inflight.size });
+  serveStatic.cacheStats = () => ({ viewCdnEntries: viewCdnCache.size, viewCdnPending: viewCdnPending.size, gzipBytes: gzipCache.total, gzipEntries: gzipCache.map.size, gzipLimitBytes: gzipCache.maxTotal, gzipInflight: gzipCache.inflight.size });
   return serveStatic;
 }
 

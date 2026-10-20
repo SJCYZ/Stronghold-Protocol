@@ -61,7 +61,7 @@ describe('the studio catalogue', () => {
     fs.mkdirSync(plugins);
     handler = async () => new Response(zip, { status: 200 });
     srv = await startServer({
-      port: 0, host: '127.0.0.1', quiet: true, pluginsDir: plugins, assetIndex: false,
+      port: 0, host: '127.0.0.1', quiet: true, pluginsDir: plugins,
       fetch: (url, init) => handler(url, init),
     });
     H = { 'x-sp-studio': srv.studio.key, 'content-type': 'application/json' };

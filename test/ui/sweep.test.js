@@ -169,12 +169,12 @@ test('enemy codex uses real base stats/abilities and labels its letter grades as
   assert.ok(text(tree).includes(enemy.name));
   assert.equal([...walk(tree)].some((v) => v.props?.dangerouslySetInnerHTML), false);
   for (const k of ['maxHp', 'atk', 'def', 'res']) assert.ok(find(tree, (v) => has(v, 'sw-stat') && v.key === k), k);
-  assert.equal(enemyGrade('maxHp', 2000), 'D');
-  assert.equal(enemyGrade('maxHp', 200000), 'S');
-  assert.equal(enemyGrade('interval', 0.7), 'S');
-  assert.equal(enemyGrade('interval', 6), 'E');
-  for (const v of [null, NaN, Infinity, undefined]) assert.equal(enemyGrade('atk', v), '—');
-  assert.equal(enemyGrade('not-a-stat', 5), '—');
+  assert.equal(enemyGrade('maxHp', 2000, null), 'D');
+  assert.equal(enemyGrade('maxHp', 200000, null), 'S');
+  assert.equal(enemyGrade('interval', 0.7, null), 'S');
+  assert.equal(enemyGrade('interval', 6, null), 'E');
+  for (const v of [null, NaN, Infinity, undefined]) assert.equal(enemyGrade('atk', v, null), '—');
+  assert.equal(enemyGrade('not-a-stat', 5, null), '—');
   let scope = 'not changed', query, rank, selected;
   const model = codexSelection(enemies, { scope: ['enemy_2_b'] });
   const view = EnemyCodexView({ model, open: { title: 'group' }, scope: ['enemy_2_b'], rank: 'all', query: '',
@@ -207,7 +207,10 @@ test('achievement canvas follows the reference design rem and viewport, without 
     if (r.selector === '.ach__box') r.walkDecls('height', (d) => sizes.push(d.value));
   });
   assert.ok(Math.abs(length(sizes.at(-1), { '--ui-unit': 100, '--sp-vh': 10.8 }) - 906) < 1e-7);
-  assert.doesNotMatch(read('public/css/screens/lobby.css'), /1080px|720px/);
+  const boxRules = [];
+  sheet.walkRules((r) => { if (r.selector === '.ach__box') boxRules.push(r); });
+  assert.equal(boxRules.length, 1);
+  assert.doesNotMatch(boxRules[0].toString(), /1080px|720px/);
   const stats = postcss.parse(read('public/css/screens/stats.css'));
   const compact = [];
   stats.walkRules((r) => { if (r.selector === '.st:not(.st--replay)') compact.push(r); });

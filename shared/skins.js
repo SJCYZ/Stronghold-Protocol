@@ -17,7 +17,7 @@ export function cleanSkins(raw) {
   return out;
 }
 
-/** Choices use base chess ids; models/catalogue use char ids. Unknown skins safely render the default. */
+/** Local official choices use base chess ids; models/catalogue use char ids. */
 export function freezeSkins(raw, getChess) {
   const out = {};
   for (const [id, skin] of Object.entries(cleanSkins(raw))) {
@@ -29,7 +29,14 @@ export function freezeSkins(raw, getChess) {
   return Object.freeze(out);
 }
 
-/** A viewer opt-in, not the owner's preference: applies to every player's skin, including spectators. */
+/** Viewer opt-in for local official skins, not the owner's preference. */
 export function visibleSkin(skin, settings) {
   return settings?.skinsEnabled === true && isSkinId(skin) ? skin : null;
+}
+
+/** Plugin/operator skins follow the room skin preference; local official skins use visibleSkin above. */
+export function visibleOperatorSkin(skin, settings, ownerId = null, myPlayerId = null) {
+  if (!isSkinId(skin)) return null;
+  if (ownerId == null || !myPlayerId || ownerId === myPlayerId) return skin;
+  return settings?.otherSkins !== false ? skin : null;
 }

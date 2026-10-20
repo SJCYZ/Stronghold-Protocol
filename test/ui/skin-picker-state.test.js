@@ -49,7 +49,7 @@ test('enabling skins retains the section, explains missing deployment and keeps 
   const after = section();
   assert.equal(after.props['data-testid'], 'skin-section');
   assert.equal(after.props['data-state'], 'empty');
-  assert.match(text(after), /尚未部署/);
+  assert.match(text(after), /暂无已部署皮肤/);
   assert.ok(button(after, '关闭皮肤'));
   assert.equal([...walk(after)].filter((v) => v.props?.role === 'radio').length, 1, 'only default is offered');
   button(after, '关闭皮肤').props.onClick();
@@ -74,23 +74,23 @@ test('operators without catalogue entries show an empty state instead of disappe
   setup(t, { catalogue: [] });
   const tree = section();
   assert.equal(tree.props['data-state'], 'empty');
-  assert.match(text(tree), /暂无可用皮肤/);
+  assert.match(text(tree), /暂无已部署皮肤/);
 });
 
 test('deployed outfits still select/clear by chess id; disabling preserves choices and stale choices show default', (t) => {
   setup(t, { installed: true });
   const tree = section(); assert.equal(tree.props['data-state'], 'ready');
   [...walk(tree)].find((v) => v.props?.['data-skin'] === SKIN).props.onClick();
-  assert.equal(skinsStore.get().entries[CHESS], SKIN);
+  assert.equal(skinsStore.get().skins[CHESS], SKIN);
   assert.equal([...walk(section())].find((v) => v.props?.['data-skin'] === SKIN).props['aria-checked'], 'true');
   button(section(), '关闭皮肤').props.onClick();
-  assert.equal(skinsStore.get().entries[CHESS], SKIN);
+  assert.equal(skinsStore.get().skins[CHESS], SKIN);
   updateSettings({ skinsEnabled: true });
-  skinsStore.set({ entries: { [CHESS]: 'not-deployed' } });
+  skinsStore.set({ skins: { [CHESS]: 'not-deployed' } });
   assert.equal([...walk(section())].find((v) => v.props?.['data-skin'] === '').props['aria-checked'], 'true');
-  assert.equal(skinsStore.get().entries[CHESS], 'not-deployed', 'unavailable preferences are retained');
+  assert.equal(skinsStore.get().skins[CHESS], 'not-deployed', 'unavailable preferences are retained');
   [...walk(section())].find((v) => v.props?.['data-skin'] === '').props.onClick();
-  assert.equal(skinsStore.get().entries[CHESS], undefined);
+  assert.equal(skinsStore.get().skins[CHESS], undefined);
 });
 
 test('loadout includes one picker and does not eagerly load the optional catalogue', () => {
