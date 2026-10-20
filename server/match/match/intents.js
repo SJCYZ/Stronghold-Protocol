@@ -50,6 +50,7 @@ export class MatchIntents {
       case 'g.watch': return this.watch(ps, msg.fieldId, msg.playerId ?? null);
       case 'g.autoplay': return this.setAutoplay(ps, !!msg.on);
       case 'g.pause': return this.setPause(ps, !!msg.on);
+      case 'g.speed': return this.setCombatSpeed(ps, msg.speed);
       // the stats the board's units start their next battle with (the detail card in prep, user playtest #4 item 7)
       case 'g.unitStats': return this.unitStats(ps, msg.seq ?? null);
       case 'g.console': return this.consoleGrant(ps, msg.kind, msg.id, msg.amount);
@@ -89,6 +90,19 @@ export class MatchIntents {
     if (!on) { ps._botWorker?.cancel(); ps._botWorker = null; }
     this.markPublic();
     if (on) this.kickBot(ps);
+    return OK;
+  }
+
+  setCombatSpeed(ps, speed) {
+    const clock = this._combatClock;
+    const step = typeof speed === 'number' ? Math.round(speed * 10) : NaN;
+    if (!ps || ps.isBot || ps.left || ps.playerId !== this.hostId) return fail(ERR.NOT_IN_ROOM);
+    if (typeof speed !== 'number' || !Number.isFinite(speed) || speed < 0.1 || speed > 4
+      || Math.abs(speed * 10 - step) > 1e-8) return fail(ERR.BAD_MSG);
+    if (!clock?.phase || clock.phase !== this.phase || this.paused || clock.paused || clock.frozen
+      || !this.fields.some((f) => f?.live && !f.done)) return fail(ERR.WRONG_PHASE);
+    if (!clock.setSpeed(speed)) return fail(ERR.WRONG_PHASE);
+    this.defaultGameSpeed = speed;
     return OK;
   }
 

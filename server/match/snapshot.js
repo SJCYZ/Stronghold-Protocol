@@ -334,6 +334,7 @@ export function restoreMatch(m, doc, { createRngFromState, log = console, bestEf
     catch (e) { reset(label, e); }
   };
   for (const k of MATCH_FIELDS) if (k !== 'round') field(m, doc, k, k);
+  if (Object.hasOwn(doc, 'gameSpeed')) m.defaultGameSpeed = m.gameSpeed;
   // A pre-0.2.5 checkpoint can already contain boss preparation waves with authoritative partners/sides.
   // Keep those instead of drawing again after a restart.
   const validPairs = pairs => Array.isArray(pairs) && pairs.length > 0

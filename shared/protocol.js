@@ -19,6 +19,7 @@ const isBool = (v) => typeof v === 'boolean';
 const isId = (v) => typeof v === 'string' && v.length > 0 && v.length <= 64 && /^[A-Za-z0-9_\-.:]+$/.test(v);
 const isUid = (v) => isInt(v, 1, 2 ** 31);
 const isNum = (v, lo = -Infinity, hi = Infinity) => typeof v === 'number' && Number.isFinite(v) && v >= lo && v <= hi;
+const isGameSpeed = (v) => isNum(v, 0.1, 4) && Math.abs(v * 10 - Math.round(v * 10)) <= 1e-8;
 const isPlain = (v) => !!v && typeof v === 'object' && !Array.isArray(v) && Object.getPrototypeOf(v) === Object.prototype;
 const optional = (check) => (v) => v === undefined || check(v);
 const nullable = (check) => (v) => v === null || v === undefined || check(v);
@@ -517,6 +518,8 @@ export const C2S = {
   // solo pause (official PauseUp / ResumeUp, DESIGN §14): freezes the running battle (field clock, deadlines, the
   // browser's local runner) — solo matches only (co-op ⇒ WRONG_PHASE), only while a battle runs; m.public.paused
   'g.pause': { on: isBool },
+  // current room host's server-authoritative combat clock selection (0.1–4.0, in tenths)
+  'g.speed': { speed: isGameSpeed },
   // the stats the own board's units start their next battle with (user playtest #4 item 7; prep phases): answered by
   // the push m.unitStats { seq, round, units: [unitStatsEntry] }; `seq` is echoed so the client keeps the newest answer
   'g.unitStats': { seq: (v) => isInt(v, 0, 2 ** 31), $optional: ['seq'] },

@@ -91,8 +91,8 @@ export class MatchCombatClock {
   setSpeed(value) {
     const speed = value;
     const step = typeof speed === 'number' ? Math.round(speed * 10) : NaN;
-    if (typeof speed !== 'number' || !Number.isFinite(speed) || speed < 0.1 || speed > 3 || Math.abs(speed * 10 - step) > 1e-8) {
-      this.match.reportError(`plugin clock:${this.plugin?.id || 'unknown'}`, new RangeError('战斗速度必须为 0.1–3.0 且按 0.1 递增'));
+    if (typeof speed !== 'number' || !Number.isFinite(speed) || speed < 0.1 || speed > 4 || Math.abs(speed * 10 - step) > 1e-8) {
+      this.match.reportError(`plugin clock:${this.plugin?.id || 'unknown'}`, new RangeError('战斗速度必须为 0.1–4.0 且按 0.1 递增'));
       return false;
     }
     if (!this.phase || this.paused || this.frozen || speed === this.speed) return !!this.phase && !this.paused && !this.frozen;
