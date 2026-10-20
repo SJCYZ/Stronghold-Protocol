@@ -403,7 +403,7 @@ export function createBattleRunner(deps) {
       || !Number.isSafeInteger(msg.phaseInstance) || msg.phaseInstance < 1
       || !Number.isFinite(msg.elapsed) || msg.elapsed < 0
       || !Number.isFinite(msg.serverNow)
-      || !Number.isFinite(msg.speed) || msg.speed < 0.1 || msg.speed > 3
+      || !Number.isFinite(msg.speed) || msg.speed < 0.1 || msg.speed > 4
       || Math.abs(msg.speed * 10 - Math.round(msg.speed * 10)) > 1e-7) return;
     const receivedAt = clock();
     let changed = false;

@@ -416,6 +416,38 @@ export function PauseButton({ paused, busy = false, onToggle }) {
   <//>`;
 }
 
+/** Host control for the server-confirmed combat speed. */
+export function CombatSpeedControl({ speed = 2, canEdit = false, paused = false, onSpeed = null }) {
+  const confirmed = Number.isFinite(speed) ? speed : 2;
+  const [draft, setDraft] = useState(confirmed);
+  const confirmedRef = useRef(confirmed);
+  const draftRef = useRef(confirmed);
+  const committedRef = useRef(null);
+  confirmedRef.current = confirmed;
+  useEffect(() => { draftRef.current = confirmed; committedRef.current = null; setDraft(confirmed); }, [confirmed]);
+  const disabled = !canEdit || paused;
+  const commit = async () => {
+    if (disabled) return;
+    const selected = Number(draftRef.current);
+    if (!Number.isFinite(selected) || selected === confirmedRef.current || committedRef.current === selected) return;
+    committedRef.current = selected;
+    const accepted = await onSpeed?.(selected);
+    if (accepted === false) {
+      committedRef.current = null;
+      draftRef.current = confirmedRef.current;
+      setDraft(confirmedRef.current);
+    }
+  };
+  return html`<label class="combat-speed" data-testid="combat-speed">
+    <span class="combat-speed__label">${t('战斗速度')}</span>
+    <input type="range" min="0.1" max="4" step="0.1" value=${draft} disabled=${disabled}
+      aria-label=${t('战斗速度')} onInput=${(e) => { committedRef.current = null; draftRef.current = Number(e.currentTarget.value); setDraft(draftRef.current); }}
+      onPointerDown=${(e) => e.currentTarget.setPointerCapture?.(e.pointerId)} onPointerUp=${commit}
+      onPointerCancel=${commit} onKeyUp=${commit} onBlur=${commit} />
+    <b class="combat-speed__value num">${Number(confirmed).toFixed(1)}×</b>
+  </label>`;
+}
+
 /**
  * Top bar. Its centre (2026-10-13, the event's, video 8:01): [🔍] in a bracket frame · a long thin band with 回合 N on
  * the left half and the LP tower on the right half · the phase capsule as a bevelled plate in the middle of it · [🔍▶▶]
@@ -426,7 +458,8 @@ export function PauseButton({ paused, busy = false, onToggle }) {
  *   pen?:boolean, penAvail?:boolean, onPen?:(on:boolean)=>void, config?: any, frozenAt?: number|null,
  *   pause?: { show: boolean, paused: boolean, busy?: boolean, onToggle: () => void } | null,
  *   live?: { pending: number, unite: boolean, left?: number|null } | null,
- *   spectators?: any[]|null, myId?: any, isHost?: boolean, onRemoveSpectator?: ((playerId: any) => any)|null }} props
+ *   spectators?: any[]|null, myId?: any, isHost?: boolean, onRemoveSpectator?: ((playerId: any) => any)|null,
+ *   speed?: number, speedPaused?: boolean, onSpeed?: ((speed: number) => any)|null }} props
  *   spectators: the room's spectator seats (room.state) — the 观战席 capsule beside the latency (SpectatorPill; the host removes)
  *   room: room.state — a match with gameplay plugins shows the small MOD mark beside the difficulty (DESIGN §32.6)
  *   frozenAt: the server time every clock shows while the solo match is paused (null = live)
@@ -434,7 +467,7 @@ export function PauseButton({ paused, busy = false, onToggle }) {
  *     `left` (a leaker in 联防): its enemies still standing — the capsule's ×N tag
  */
 export function TopBar({ pub, priv, conn, hud, total, drawer, onExit, onDrawer, onReady, readyBusy, readyCount, playerCount, pen = false, penAvail = false, onPen = () => {},
-  config = null, frozenAt = null, pause = null, live = null, spectator = false,
+  config = null, frozenAt = null, pause = null, live = null, spectator = false, speed = 2, speedPaused = false, onSpeed = null,
   spectators = null, myId = null, isHost = false, onRemoveSpectator = null, room = null }) {
   const phase = pub?.phase;
   const boss = isBossPhase(phase);
@@ -511,6 +544,7 @@ export function TopBar({ pub, priv, conn, hud, total, drawer, onExit, onDrawer, 
           : html`<${Countdown} deadline=${pub?.deadline} total=${total ?? undefined} size="md" />`}
         ${pause && (pause.show || pause.paused) ? html`<${PauseButton} paused=${!!pause.paused} busy=${pause.busy} onToggle=${pause.onToggle} />` : null}
       </div>
+      ${isCombatPhase(phase) ? html`<${CombatSpeedControl} speed=${speed} canEdit=${isHost} paused=${speedPaused} onSpeed=${onSpeed} />` : null}
       <${OvertimeWarning} ot=${ot} />
       ${showReady ? html`<${ReadyToggle} priv=${priv} onToggle=${onReady} busy=${readyBusy} readyCount=${readyCount} total=${playerCount} />` : null}
     </div>

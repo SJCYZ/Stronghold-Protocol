@@ -183,6 +183,17 @@
 .gtop__right { display: flex; flex-direction: column; align-items: flex-end; gap: .1rem; justify-self: end; }
 .gtop__right .countdown { --cd-h: .7rem; filter: drop-shadow(0 0 .12rem rgba(0, 0, 0, .8)); }
 .gtop__clock { display: flex; align-items: flex-start; gap: .14rem; }
+.combat-speed { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: .07rem; width: min(1.55rem, 100%); min-width: 0; padding: .035rem .07rem; background: rgba(8, 12, 11, .78); border: 1px solid rgba(200, 206, 208, .35); color: var(--text-hi); }
+.combat-speed__label { min-width: 0; overflow: hidden; font-size: .105rem; white-space: nowrap; }
+.combat-speed input { width: 100%; min-width: 0; height: .18rem; margin: 0; accent-color: var(--mint-400); }
+.combat-speed input:disabled { opacity: .55; }
+.combat-speed__value { min-width: .34rem; text-align: right; font-size: .13rem; }
+@media (max-width: 760px) {
+  .gtop__right { max-width: 25vw; }
+  .combat-speed { width: min(1.2rem, 25vw); gap: .04rem; padding: .03rem .05rem; }
+  .combat-speed__label { font-size: .09rem; }
+  .combat-speed__value { min-width: .28rem; font-size: .11rem; }
+}
 
 /* solo pause / resume (ui/hud.js PauseButton, official battle pause: two bars on a dark square) */
 .pausebtn {

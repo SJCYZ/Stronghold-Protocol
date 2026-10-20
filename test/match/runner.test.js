@@ -410,6 +410,25 @@ test('solo pause: m.public.paused freezes every local battle clock (no ticks, no
   r.runner.dispose();
 });
 
+test('b.speed accepts 4.0 for the current phase and ignores values above the limit', async () => {
+  const start = realStart(7312);
+  const r = rig();
+  r.net.emit('b.start', start);
+  await r.settle();
+  const e = r.runner._entries.get(start.battleId);
+  const update = (speed) => r.net.emit('b.speed', {
+    phase: start.phase, phaseInstance: start.phaseInstance, elapsed: 0, serverNow: r.t, speed,
+  });
+
+  update(4.0);
+  assert.equal(e.speed, 4.0, 'the current field rebases to the confirmed 4× speed');
+  assert.equal(r.store.get().match.field.speed, 4.0, 'the HUD field metadata follows the server update');
+  update(4.1);
+  assert.equal(e.speed, 4.0, 'an out-of-range speed is ignored');
+  assert.equal(r.store.get().match.field.speed, 4.0);
+  r.runner.dispose();
+});
+
 /** realStart() with an empty board: every enemy of the wave walks into the blue gate. */
 function leakingStart(seed = 7307) {
   const start = realStart(seed);
