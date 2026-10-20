@@ -507,6 +507,7 @@ export const C2S = {
   'g.reward': { idx: (v) => isInt(v, 0, 5) },
   'g.choice': { idx: (v) => isInt(v, 0, 5), choiceId: isId, $optional: ['choiceId'] },
   'g.ready': { ready: isBool },
+  'g.rescue': { targetId: isId },
   'g.emote': { id: (v) => EMOTES.includes(v) },
   'g.chat': { text: validChatText },
   // playerId: the player tapped in the team panel (a 联防 / boss pair field shows two) — what an eliminated viewer or a

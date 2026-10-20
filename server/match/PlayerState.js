@@ -155,6 +155,8 @@ export class PlayerState {
     this.consoleRoundUses = 0;
     this.consoleTotalUses = 0;
     this.alive = true;
+    this.pendingElimination = false;
+    this.lifeRescueUsed = false;
     this.lp = 0;
     this.bandId = null;
     this.funds = 0;

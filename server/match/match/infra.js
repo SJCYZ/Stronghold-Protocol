@@ -80,7 +80,7 @@ export class MatchInfra {
 
   nextUid() { return ++this.uidSeq; }
 
-  alivePlayers() { return this.order.filter((p) => p.alive); }
+  alivePlayers() { return this.order.filter((p) => p.alive && !p.pendingElimination); }
 
   /** Whether any chess of a bond is in this match's pool (a 驰援 card of a fully banned bond is never offered). */
   bondInPool(bondId) {

@@ -788,6 +788,7 @@ empty. Only plugin `char_x_…` ids add a shop charId lookup; official dispatch 
 | `sp.enemies.register(id, builder)` | `(def) => { install(battle, enemy) }`; install on enemySpawn before ordinary enemy handlers; `sim.code` |
 | `sp.content.register({ id?, install?, registerMeta? })` | One module id (defaults to plugin id); install per battle; registerMeta receives `{ register(key, handler) }` during setup; permissions for each half |
 | `sp.clock.onPhase(handler)` | `clock.speed`; 每个内容组合最多注册一个控制器。Match 服务端在进入活动战斗阶段时调用阶段处理器；浏览器插件环境只允许注册，不执行时钟回调或修改速度。上下文包含 `phase`、`elapsed()`、`after(seconds, callback)`、`every(seconds, callback)` 与 `setSpeed(value)`。`after` 的 seconds 是从阶段起点算起的逻辑秒；`every` 从注册时起按逻辑秒重复。速度严格为 `0.1`–`3.0`、步进 `0.1`；暂停时钟冻结，阶段结束自动清除计时器。 |
+| `sp.match.life.onPostSettlement(handler)` | `match.life`; 服务端在本轮所有 LP 与战斗结果结算后、推进下一轮前调用。上下文提供只读 `players` 和本次 Match 专属的 `changeLife`、`revive`、`offerRescue` 操作；浏览器仅注册，不执行此回调。 |
 | `sp.meta.register(key, handler)` | META §2 keys and hook contracts; `meta.code` |
 | `sp.kit` / imported `kit` | `num`, `talentBb`, `talentGrid`, `moduleBb`, `traitBb`, `moduleOn`, `up`, `cheb`, `isMainHit`, `byEnemyAttack`, `skillBusy`, `giveSp`, `onHitBy`, `onHitOn`, `onDamagedOn`, `enemiesInGrid`, `alliesInGridOf`, `enemyInRange`, `statBuff`, `toggleBuff`, `instantKind`, `skillRec`, `skillBbOf`, `batMod` — tier1 signatures |
 | `sp.math` / imported `math` | The exports of `server/sim/detmath.js` |
@@ -796,6 +797,10 @@ empty. Only plugin `char_x_…` ids add a shop charId lookup; official dispatch 
 | `sp.log(...values)` | At most 20 lines per setup, each value truncated to 500 characters [ASSUMED] |
 
 除 `clock.speed` 明确提供的 Match 阶段时钟外，SDK 不提供墙钟或通用定时器。未声明权限时调用 `sp.clock.onPhase` 会按 `PLUGIN_PERMISSION_MISSING` 拒绝；多个控制器注册会以 `PLUGIN_SCRIPT_CONFLICT` 拒绝组合。阶段时钟、定时回调和速度设置仅由 Match 服务端执行。Hooks 和引擎辅助函数遵循 SIM §5–7；使用 `battle.rng`、`after` 和 `every`。`tools/plugin.mjs check` 与注册表使用相同的词法扫描（`shared/plugins/scriptCheck.js`）：只允许导入 `sp:sdk@1`，拒绝动态导入/再导出、eval、Function、require、process/globalThis、fetch/XHR/WebSocket、Date、Math.random 或 localeCompare；也会拒绝常见环境浏览器 API 和实现近似的 Math 函数。这不是完整解析器或沙箱；混淆代码可能绕过扫描，保守扫描也可能拒绝无害的模板/正则文本。`trusted` 页面/服务端入口不受限且不会标记为可沙箱运行；其 sim/meta 入口仍使用 SDK 检查。
+
+**Match life API（玩家生命接口）。** `match.life` 仅对 `script`/`trusted` 代码开放。`onPostSettlement` 在本轮所有 LP 和战斗结果结算完成后、进入下一轮前调用。冻结的 `players` 副本包含 `playerId`、`isBot`、`alive`、`lp`、`pendingElimination` 和 `lifeRescueUsed`。本次结算提供 `changeLife(playerId, integerDelta)`、`revive(playerId, positiveLp)` 和 `offerRescue({ cost, durationMs, targetIds }, onRescue)` 操作。确认回调收到服务端认证的 `rescuerId`、`targetId`，以及仅属于该 Match 本次结算的操作闭包。写操作闭包只在同步回调期间有效：`onPostSettlement` 返回后，结算操作和救援登记立即失效；`onRescue` 返回后，救援操作立即失效。保留闭包或在返回后（包括 `await` 后）调用都会返回 `false`。插件不能提交身份、支付结果或任意 Match 操作。浏览器可以注册回调，但不会执行回调或取得写操作上下文。
+
+`life-rescue` 示例读取内容集锁定的 `lifeCost` 设置（整数 1–100，默认 10）。只有存在待救目标，且有真人玩家支付后仍能保留至少 1 LP 时，插件才登记固定 20 秒窗口。Match 会在每次请求时重新校验阶段、截止时间、身份、LP、目标和本局救援次数，再原子地完成扣款与复活；无效或竞争失败的请求不会扣款。窗口到期后，剩余目标按原淘汰流程清理。子进程回滚会连同检查点一起回滚救援状态，不会留下单独扣款。被救玩家保留结算后的阵容、物品及库存来源、资金、待入账资金、剩余赏金、未领取奖励和个人选择；下一轮商店照常刷新。原生 SETTLE 界面提供救援操作，UI iframe 和插件桥仍为只读。该插件需通过房间现有内容选择、锁定和同意流程启用，不会默认加入。
 
 **Budget.** Script callbacks and engine actions use the same per-battle/per-plugin counter as DSL (default 8000).
 Setup installs, hooks, timer callbacks and skill callbacks count. Engine actions (damage, buffs, spawning, DP, etc.)

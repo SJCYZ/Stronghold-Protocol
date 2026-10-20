@@ -74,6 +74,7 @@ This project does not host plugins and does not run a market. A catalogue (`sche
 | `permission.meta.code` | experimental | 0.3.0 | `shared/plugins/manifest.js#PERMISSIONS` |
 | `permission.mode.code` | experimental | 0.3.0 | `shared/plugins/manifest.js#PERMISSIONS` |
 | `permission.clock.speed` | experimental | 0.3.0 | `shared/plugins/manifest.js#PERMISSIONS` |
+| `permission.match.life` | stable | 0.3.0 | `shared/plugins/manifest.js#PERMISSIONS` |
 | `permission.ui.frame` | stable | 0.3.0 | `shared/plugins/manifest.js#PERMISSIONS` |
 | `permission.trusted.page` | experimental | 0.3.0 | `shared/plugins/manifest.js#PERMISSIONS` |
 | `permission.trusted.server` | experimental | 0.3.0 | `shared/plugins/manifest.js#PERMISSIONS` |
@@ -480,6 +481,7 @@ This project does not host plugins and does not run a market. A catalogue (`sche
 | `sdk.sp:sdk@1.log` | experimental | 0.3.0 | `shared/plugins/sdk.js#SDK_MEMBERS` |
 | `sdk.sp:sdk@1.math` | experimental | 0.3.0 | `shared/plugins/sdk.js#SDK_MEMBERS` |
 | `sdk.sp:sdk@1.meta.register` | experimental | 0.3.0 | `shared/plugins/sdk.js#SDK_MEMBERS` |
+| `sdk.sp:sdk@1.match.life.onPostSettlement` | experimental | 0.3.0 | `shared/plugins/sdk.js#SDK_MEMBERS` |
 | `sdk.sp:sdk@1.settings` | experimental | 0.3.0 | `shared/plugins/sdk.js#SDK_MEMBERS` |
 | `sdk.export.constants` | experimental | 0.3.0 | `shared/plugins/sdk.js#constants` |
 | `sdk.export.createSDK` | experimental | 0.3.0 | `shared/plugins/sdk.js#createSDK` |

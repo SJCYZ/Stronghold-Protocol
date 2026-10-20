@@ -27,7 +27,7 @@ LOBBY(room) → INFO_CHECK (co-op 25 s; solo and any single-human match untimed 
                     escape templates supply re-entry waves/routes, not a flat replacement battlefield;
                     a helper's operator knocked out at the end of its own combat enters down — carryState { down: true },
                     PRTS "上一阶段为退场状态的干员强制退场", its full redeploy timer — confirmed by the user (§19.3))
-     SETTLE        (LP −min(leaks,10) per player (unite survivors to their source); eliminations; layer gains applied; coins; broadcast;
+     SETTLE        (LP −min(leaks,10) per player (unite survivors to their source); pending eliminations; optional 20 real s life-rescue window; layer gains applied; coins; broadcast;
                     after a 联防 the outcome and every player's charge ride the SETTLE m.public as `uniteResult`, GitHub #235)
    R14 FINAL_ASSAULT (merged team LP; random pairs fixed for this match; shared boss pool; 120 real s countdown, no hard stop; overtime −1 team LP per
                     real s after 120 real s, or 150 with an AI teammate at fight start (§29.1, m.public.overtimeAt); no layer gains; team LP 0 ⇒ defeat at once (PRTS 直接失败),
@@ -38,6 +38,8 @@ LOBBY(room) → INFO_CHECK (co-op 25 s; solo and any single-human match untimed 
 Solo FUNNY has 9 rounds (boss at R9); everything is read from `data/config.json → modes[modeId]`.
 
 P1b plugin modes inherit an official mode and may override economy and other global configuration field by field in `GameData` (DESIGN §32.5). Original modes retain the same values and behavior; room mode selection belongs to P1c.
+
+房间明确选择并锁定带有 `match.life` 权限的脚本插件后，LP 降至 0 的玩家会在本轮结算完成前进入待淘汰状态。只有存在待救目标，且有真人玩家支付插件配置的 `lifeCost` 后仍能保留至少 1 LP 时，`life-rescue` 才开启固定 20 秒窗口。Match 认证救援者，并原子地完成扣款和复活；每个目标每局最多复活一次，复活后为 1 LP。被救玩家保留结算后的阵容、物品及库存来源、资金、待入账资金、剩余赏金、未领取奖励和个人选择；下一轮商店照常刷新。窗口到期后，未获救目标按原淘汰流程清理。未启用插件或没有合格救援者时，仍沿用原来的 3 秒 SETTLE 流程。该插件不会默认加入房间，仍须遵循内容锁定和玩家同意流程。
 
 ### 6.2 Player state (PlayerState.js) — authoritative per player
 

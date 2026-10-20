@@ -96,7 +96,7 @@ import { SettingsModal, shortcutsStore, useSettings } from '../ui/settings.js';
 import { ConsoleModal } from '../ui/console.js';
 import { ExitModal, AwayOverlay, awayStore } from '../ui/matchChrome.js';
 import { openGuide } from '../ui/guide.js';
-import { actions, onRefreshBusy } from '../ui/gameActions.js';
+import { actions, act, onRefreshBusy } from '../ui/gameActions.js';
 import { FacingWheel, holdPiece, setPieceDir, syncPieceDirs, showRange, useTileScreen } from '../ui/facingWheel.js';
 import { Underframe, underframeRect, TempRowNotice } from '../ui/underframe.js';
 import { StandInTags } from './game/standInTags.js';
@@ -106,7 +106,7 @@ import { pauseAvailable, isPaused, frozenNow } from '../ui/matchStatus.js';
 import { pieceTile } from '../render/drag.js';
 import { FOLD_CAMERA_MS } from '../render/app/tune.js';
 import {
-  phaseMode, phaseBanner, isCombatPhase, showDeadPill, isBossPhase, placementContext, canPlace, boardTargets, dropIntent,
+  phaseMode, phaseBanner, isCombatPhase, showDeadPill, isBossPhase, rescueTargets, placementContext, canPlace, boardTargets, dropIntent,
   battleOverSfx, uniteResultBox, battleResultBox,
   snapHud, activeBubbles, shortcutFor, shortcutBlocked, prepShortcutsSuspended, closesOnFieldPress, phaseTotalSeconds, homeFieldId, ownFieldId, normalizeSp, normalizePersonalChoice, sortedPlayers,
   terrainInfo, deviceInfo, deviceTipAt, noteDeviceUnits, deviceUnitsForEntry,
@@ -138,6 +138,19 @@ import { MatchEnded, PausedOverlay } from './game/overlays.js';
 import { inspectRange } from './game/range.js';
 import { t, tParts } from '../../../shared/i18n.js';
 
+
+function RescuePanel({ rows, onRescue }) {
+  const [busy, setBusy] = useState(null);
+  return html`<section class="life-rescue" aria-label=${t('救援目标')} style=${{ position: 'absolute', zIndex: 80, left: '50%', top: '1rem', transform: 'translateX(-50%)', maxWidth: 'min(28rem, calc(100vw - 2rem))', padding: '.75rem 1rem', background: 'var(--panel-bg, rgba(12, 18, 24, .96))', border: '1px solid var(--line, #65717a)', color: 'var(--text, #fff)' }}>
+    <strong>${t('救援目标')}</strong>
+    <div>${t('剩余 {seconds} 秒', { seconds: rows[0]?.remain ?? 0 })}</div>
+    ${rows.map((target) => html`<div class="life-rescue__target" key=${target.playerId} style=${{ display: 'flex', alignItems: 'center', gap: '.75rem', marginTop: '.5rem' }}>
+      <span>${target.name}</span><span>${t('救援代价：{cost} 点生命值', { cost: target.cost })}</span>
+      ${target.rescued ? html`<span>${t('已救援')}</span>` : html`<button type="button" disabled=${!target.eligible || busy === target.playerId}
+        onClick=${async () => { setBusy(target.playerId); await onRescue(target); setBusy(null); }}>${t('救援')}</button>`}
+    </div>`)}
+  </section>`;
+}
 
 /** Router for the in-match screens. */
 export function GameScreen() {
@@ -870,6 +883,8 @@ function MatchScreen() {
   // timer ticks (≤ 10 s) while the player still has something to do
   const cd = countdownState(pub?.deadline, serverNow(), total);
   useTicker(cd.remain != null && cd.remain <= 10 ? 1000 : 0);
+  const rescueRows = rescueTargets(pub, players, myId, priv?.lp ?? meP?.lp, serverNow());
+  useTicker(rescueRows.length ? 1000 : 0);
   const lastTick = useRef(null);
   useEffect(() => {
     if (cd.remain == null || cd.remain > 10 || cd.remain === lastTick.current) return;
@@ -1738,6 +1753,8 @@ function MatchScreen() {
 
     ${resultBox ? html`<${ResultDialog} key=${resultBox.key} title=${resultBox.title} sub=${resultBox.sub} micro=${resultBox.micro}
       tone=${resultBox.tone} duration=${resultBox.duration} onDone=${() => setResultBox(null)} />` : null}
+
+    ${rescueRows.length ? html`<${RescuePanel} rows=${rescueRows} onRescue=${(target) => act('g.rescue', { targetId: target.playerId })} />` : null}
 
     ${bossPlate?.kind === 'final' ? html`<${FinalAssaultPlate} key=${bossPlate.key} rows=${bossPlate.rows} total=${bossPlate.total}
       icon=${bossIconOf(gd, pub?.bossId)} onDone=${() => setBossPlate(null)} />` : null}

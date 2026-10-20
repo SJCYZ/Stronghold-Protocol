@@ -1,0 +1,18 @@
+{
+  "$schema": "../../schemas/plugin.schema.json",
+  "manifest": 2,
+  "id": "life-rescue",
+  "name": { "zh": "生命救援", "en": "Life rescue" },
+  "description": { "zh": "在结算后消耗生命值救援待淘汰的真人玩家。", "en": "Spend life points after settlement to rescue a player pending elimination." },
+  "version": "1.0.0",
+  "app": ">=0.3.0 <0.4.0",
+  "api": 1,
+  "class": "script",
+  "scope": ["room"],
+  "authors": ["Stronghold Protocol"],
+  "permissions": ["sim.code", "match.life"],
+  "settings": {
+    "lifeCost": { "type": "integer", "min": 1, "max": 100, "default": 10, "label": { "zh": "救援生命代价", "en": "Rescue life cost" } }
+  },
+  "entry": { "sim": "sim/index.js" }
+}

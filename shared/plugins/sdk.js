@@ -40,6 +40,7 @@ export function createSDK(plugin, { settings = {}, log = (..._args) => {} } = {}
     enemies: Object.freeze({ register: (id,fn) => {need('sim.code');return extensions.registerEnemy(plugin,id,fn);} }),
     content: Object.freeze({ register: mod => {if(mod.install)need('sim.code');if(mod.registerMeta)need('meta.code');return extensions.registerContent(plugin,mod);} }),
     clock: Object.freeze({ onPhase: handler => {need('clock.speed');return extensions.registerCombatClock(plugin,handler);} }),
+    match: Object.freeze({ life: Object.freeze({ onPostSettlement: handler => { need('match.life'); return extensions.registerPostSettlement(plugin, handler); } }) }),
     meta: Object.freeze({ register: (id,h) => {need('meta.code');return extensions.registerMeta(plugin,id,h);} }),
     log: (...args) => { if (lines++ < 20) log(`[plugin:${plugin.id}]`, ...args.map(x => String(x).slice(0,500))); },
   });
@@ -48,4 +49,4 @@ export function createSDK(plugin, { settings = {}, log = (..._args) => {} } = {}
 /** The module id a plugin's code imports (the frozen API table, docs/PLUGIN-API.md). */
 export const SDK_ID = 'sp:sdk@1';
 /** What createSDK(plugin) hands a plugin's setup as `sp` — each one is a row of the frozen API table. */
-export const SDK_MEMBERS = Object.freeze(['clock.onPhase', 'constants', 'content.register', 'enemies.register', 'kit', 'kits.register', 'log', 'math', 'meta.register', 'settings']);
+export const SDK_MEMBERS = Object.freeze(['clock.onPhase', 'constants', 'content.register', 'enemies.register', 'kit', 'kits.register', 'log', 'math', 'meta.register', 'match.life.onPostSettlement', 'settings']);
