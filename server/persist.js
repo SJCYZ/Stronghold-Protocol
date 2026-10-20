@@ -53,6 +53,16 @@ export function sessionDoc(s, now, activeMatchKey = null) {
   return {
     playerId: s.playerId,
     token: s.token,
+    authType: s.authType,
+    ...(s.authType === 'account' ? {
+      wgsSubject: s.wgsSubject, wgsAuthVersion: s.wgsAuthVersion,
+      wgsSessionRef: s.wgsSessionRef, authExpiresAt: s.authExpiresAt,
+    } : {}),
+    ...(s.authType === 'guest' ? {
+      guestInviteId: s.guestInviteId, guestRoomId: s.guestRoomId,
+      guestGeneration: s.guestGeneration, guestAccepted: s.guestAccepted === true,
+      guestRevoked: s.guestRevoked === true,
+    } : {}),
     name: s.name,
     roomCode: s.roomCode || null,
     card: s.card || null, skins: s.skins || null, loadout: s.loadout || null, ops: s.ops || null, notOwned: s.notOwned || null, diy: s.diy || null, lang: s.lang || 'zh-CN',
@@ -91,6 +101,11 @@ export function roomDoc(room) {
     matchKey: room.matchKey || null,
     queueMatch: !!room.matchCtx?.queue,
     matchCount: room.matchCount | 0,
+    shareInvite: room.shareInvite ? {
+      inviteId: room.shareInvite.inviteId, digest: room.shareInvite.digest,
+      generation: room.shareInvite.generation, open: room.shareInvite.open === true,
+      revoked: room.shareInvite.revoked === true,
+    } : null,
     seats: room.seats.filter(Boolean).map(seatDoc),
   };
 }
@@ -170,7 +185,20 @@ export function restoreServer({ doc, registry, lobby, now = Date.now(), log = no
   const sessionDocs = new Map();
   for (const s of [...(Array.isArray(doc.sessions) ? doc.sessions : []),
     ...Object.values(retained).flatMap((entry) => !entry?.superseded && Array.isArray(entry?.sessions) ? entry.sessions : [])]) {
-    if (s && typeof s.playerId === 'string' && s.playerId && typeof s.token === 'string' && s.token && !sessionDocs.has(s.playerId)) sessionDocs.set(s.playerId, s);
+    if (s && (s.authType === 'account' || s.authType === 'guest')
+      && typeof s.playerId === 'string' && s.playerId && typeof s.token === 'string' && s.token && !sessionDocs.has(s.playerId)) sessionDocs.set(s.playerId, s);
+  }
+  const roomSourceDocs = [...(Array.isArray(doc.rooms) ? doc.rooms : []), ...Object.values(retained).filter((entry) => !entry?.superseded).map((entry) => entry?.room)];
+  const roomsByCode = new Map(roomSourceDocs.filter((r) => r && typeof r.code === 'string').map((r) => [r.code, r]));
+  const activeGuestIds = new Set();
+  for (const s of sessionDocs.values()) {
+    if (s.authType !== 'guest' || s.guestRevoked || s.guestAccepted !== true || s.guestRoomId !== s.roomCode
+      || !Number.isSafeInteger(s.guestGeneration)) continue;
+    const room = roomsByCode.get(s.guestRoomId);
+    const cp = matches.get(s.guestRoomId);
+    if (room?.hasMatch === true && room.matchCount === s.guestGeneration
+      && typeof s.guestInviteId === 'string' && s.guestInviteId
+      && Array.isArray(cp?.players) && cp.players.some((p) => p?.playerId === s.playerId && !p.isBot && !p.left)) activeGuestIds.add(s.playerId);
   }
   const activeIds = new Set([...matches.values()].flatMap((cp) => Array.isArray(cp?.players)
     ? cp.players.filter((p) => p && !p.isBot && !p.left).map((p) => p.playerId) : []));
@@ -179,6 +207,10 @@ export function restoreServer({ doc, registry, lobby, now = Date.now(), log = no
   const sessionMatchKeys = new Map([...sessionDocs].filter(([, s]) => typeof s.activeMatchKey === 'string').map(([id, s]) => [id, s.activeMatchKey]));
 
   for (const s of [...sessionDocs.values()].sort((a, b) => Number(activeIds.has(b.playerId)) - Number(activeIds.has(a.playerId)))) {
+    if (s.authType === 'account' && (typeof s.wgsSubject !== 'string' || !s.wgsSubject
+      || !Number.isSafeInteger(s.wgsAuthVersion) || typeof s.wgsSessionRef !== 'string' || !s.wgsSessionRef
+      || !Number.isFinite(s.authExpiresAt) || s.authExpiresAt <= now)) { stats.expired++; continue; }
+    if (s.authType === 'guest' && !activeGuestIds.has(s.playerId)) { stats.expired++; continue; }
     // a session that was connected when the document was written was cut off by the restart itself: its window starts now
     const since = s.connected === false && Number.isFinite(s.disconnectedAt) ? Number(s.disconnectedAt) : now;
     // Extensions are solo retention windows. Clamp old 24-hour records to the current branch setting.
@@ -188,6 +220,10 @@ export function restoreServer({ doc, registry, lobby, now = Date.now(), log = no
       const session = registry.adopt({
         playerId: s.playerId,
         token: s.token,
+        authType: s.authType,
+        wgsSubject: s.wgsSubject, wgsAuthVersion: s.wgsAuthVersion, wgsSessionRef: s.wgsSessionRef, authExpiresAt: s.authExpiresAt,
+        guestInviteId: s.guestInviteId, guestRoomId: s.guestRoomId, guestGeneration: s.guestGeneration,
+        guestAccepted: s.guestAccepted, guestRevoked: s.guestRevoked,
         name: typeof s.name === 'string' ? s.name : t('博士'),
         disconnectedAt: since,
         lastMatchAt: s.lastMatchAt,

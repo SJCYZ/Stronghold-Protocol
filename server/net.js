@@ -110,6 +110,7 @@ export class Session {
     this.wgsSubject = this.authType === 'account' ? identity.subject : null;
     this.wgsAuthVersion = this.authType === 'account' ? identity.authVersion : null;
     this.wgsSessionRef = this.authType === 'account' ? identity.sessionRef : null;
+    this.authExpiresAt = this.authType === 'account' && Number.isFinite(identity.expiresAt) ? identity.expiresAt : null;
     this.guestInviteId = this.authType === 'guest' ? identity.inviteId : null;
     this.guestRoomId = this.authType === 'guest' ? identity.roomId : null;
     this.guestGeneration = this.authType === 'guest' ? identity.generation : null;
@@ -225,7 +226,13 @@ export class SessionRegistry {
     if (this.byPlayerId.has(doc.playerId) || this.byTokenMap.has(doc.token)) return null;
     if (this.byPlayerId.size >= this.maxSessions && !allowOverCapacity) return null;
     const now = this.now();
-    const s = new Session({ playerId: doc.playerId, token: doc.token, name: doc.name, now });
+    const identity = doc.authType === 'account' ? {
+      type: 'account', subject: doc.wgsSubject, authVersion: doc.wgsAuthVersion,
+      sessionRef: doc.wgsSessionRef, expiresAt: doc.authExpiresAt,
+    } : doc.authType === 'guest' ? {
+      type: 'guest', inviteId: doc.guestInviteId, roomId: doc.guestRoomId, generation: doc.guestGeneration,
+    } : null;
+    const s = new Session({ playerId: doc.playerId, token: doc.token, name: doc.name, identity, now });
     s.connected = false;
     s.ws = null;
     const since = Number(doc.disconnectedAt);
@@ -233,6 +240,8 @@ export class SessionRegistry {
     s.lastMatchAt = Number.isFinite(doc.lastMatchAt) && doc.lastMatchAt >= 0 ? doc.lastMatchAt : null;
     s.resumeWindowMs = Number.isFinite(doc.resumeWindowMs) && doc.resumeWindowMs > 0 ? Number(doc.resumeWindowMs) : null;
     s.roomCode = typeof doc.roomCode === 'string' && doc.roomCode ? doc.roomCode : null;
+    s.guestAccepted = s.authType === 'guest' && doc.guestAccepted === true;
+    s.guestRevoked = s.authType === 'guest' && doc.guestRevoked === true;
     s.loadout = doc.loadout && typeof doc.loadout === 'object' ? doc.loadout : null;
     s.skins = Object.freeze(cleanSkins(doc.skins));
     s.card = doc.card ? cleanPlayerCard(doc.card) : null;
