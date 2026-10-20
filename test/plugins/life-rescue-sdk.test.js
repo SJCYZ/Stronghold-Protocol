@@ -5,9 +5,9 @@ import { createSDK } from '../../shared/plugins/sdk.js';
 import * as extensions from '../../server/sim/content/extensions.js';
 const { resetExtensions } = extensions;
 
-const manifest = (permissions, cls = 'script') => readPluginManifest({
+const manifest = (permissions, cls = 'script', entry = { sim: 'sim.js' }) => readPluginManifest({
   manifest: 2, id: 'life-rescue', name: 'Life rescue', version: '1.0.0', app: '*', api: 1,
-  class: cls, scope: ['room'], permissions: [...new Set([...permissions, 'sim.code'])], entry: { sim: 'sim.js' },
+  class: cls, scope: ['room'], permissions: [...new Set([...permissions, 'sim.code'])], entry,
 }, { id: 'life-rescue', app: '0.3.0' });
 
 test('match.life is only declared by script and trusted manifests', () => {
@@ -16,6 +16,14 @@ test('match.life is only declared by script and trusted manifests', () => {
   assert.deepEqual(manifest(['match.life'], 'trusted').problems, []);
   assert.ok(manifest(['match.life'], 'content').problems.some(x => x.includes('not one a content plugin may have')));
   assert.ok(manifest(['match.life', 'unknown.permission']).problems.some(x => x.includes('unknown permission')));
+});
+
+test('clock.speed is a runtime permission for script and trusted entries', () => {
+  assert.deepEqual(PERMISSIONS['clock.speed'], ['script', 'trusted']);
+  assert.deepEqual(manifest(['clock.speed']).problems, []);
+  assert.deepEqual(manifest(['clock.speed']).warnings, []);
+  assert.deepEqual(manifest(['clock.speed'], 'trusted').warnings, []);
+  assert.ok(manifest(['clock.speed'], 'script', {}).warnings.some(x => x.includes('"clock.speed" is declared but nothing in the manifest uses it')));
 });
 
 test('life callback registration requires match.life permission', () => {
