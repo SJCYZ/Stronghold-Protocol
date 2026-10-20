@@ -44,8 +44,10 @@
   - WGS 浏览器入口：`GET /api/v1/game-sso/authorize`，接受登记的 client、回调、state、S256 challenge。
   - WGS 服务端兑换：`POST /api/v1/game-sso/token`，验证 client secret、callback、PKCE，并原子消费 60 秒授权码。
   - WGS 服务端核验：`POST /api/v1/game-sso/introspect`，检查原 WGS 会话仍有效及账号当前资格，返回 subject/auth_version/有效期。
-  - Stronghold 登录入口/回调：`GET /auth/wgs/start`、`GET /auth/wgs/callback`；回调兑换成功后生成 60 秒过期的 Stronghold 登录票据，并以 fragment 返回标题页。
-  - Stronghold 访客兑换：`POST /auth/guest/redeem`，分享秘密只走请求正文，返回短时 Stronghold 访客票据。
+  - Stronghold 登录入口/回调：`GET /auth/wgs/start`、`GET /auth/wgs/callback`；回调兑换成功后生成 60 秒过期的 Stronghold `authTicket`，通过 URL fragment `#authTicket=...` 返回标题页。
+  - Stronghold 访客兑换：`POST /auth/guest/redeem`，请求正文接收 `{ shareCode }`，返回 60 秒过期的一次性 `{ authTicket }`。
+  - 首次 WS `hello` 使用统一字段 `authTicket` 建立账号或访客身份；身份类型与权限范围只由服务端票据记录决定，成功后仍使用 Stronghold 本地 `token` 重连。
+  - 房间内账号玩家通过 WS `room.invite.create` 生成/轮换下一局分享码；成功响应只返回一次明文分享码，轮换立即撤销旧码。
 - WGS 未登录时将浏览器引导到现有 `/auth` 登录页；登录成功后只允许返回同源且仍经过 WGS allowlist 校验的原授权请求。
 - 将 client 列表/secret、Stronghold WGS 地址与 secret 加入现有服务端配置和部署文档；样例仅用占位值。
 
@@ -69,9 +71,9 @@
 ## Task 3: 在 Stronghold 建立账号与访客会话凭据
 
 - 新增 WGS SSO 客户端模块，生成 state/PKCE，短时保存事务，限制重定向及网络超时；仅后端调用 token/introspect。
-- 用服务端保存的一次性 Stronghold 登录票据将回调身份传到首次 hello；票据只含/引用已核验的账号身份，不把 WGS session reference 交给浏览器。
+- WGS 回调与访客兑换都生成同一种服务端一次性 `authTicket`，首次 hello 消费它并由服务器记录决定 account/guest 身份；不把 WGS session reference 交给浏览器。
 - 新增访客兑换服务：在请求正文接收分享码，检查房间仍开放、未开局、generation 一致及速率限制；同一有效分享码可产生多个彼此独立的访客票据。票据 60 秒过期、一次性、绑定 invite ID/room ID/目标 generation。
-- 扩展 `Session` 身份为 account/guest；新 hello 必须消费有效登录票据、访客票据，或携带已知且具有身份范围的本地重连 token。空身份 hello、随机 token、升级前匿名 token 都拒绝。
+- 扩展 `Session` 身份为 account/guest；新 hello 必须消费有效 `authTicket`，重连必须使用已知且具有身份范围的本地 `token`。空身份 hello、随机 token、升级前匿名 token 都拒绝。
 - account Session 保存服务端 WGS opaque 引用/auth_version；guest Session 保存 invite ID、room ID、match generation。两类 Session 使用互不混淆的 Stronghold 本地重连 token。
 
 涉及：新增 `server/auth/wgsSso.js`（或在现有 HTTP 结构内放置等职责模块），修改 `server/net.js`、`server/index.js`、`server/http/routes.js`。
@@ -81,8 +83,8 @@
 ## Task 4: 在 Lobby 入口实施房间与单局权限
 
 - 账号 Session 沿用当前已授权房间、创建/匹配/观战能力；账号在重连及新局权限边界重新 introspect，WGS 故障时拒绝相关操作。
-- 账号玩家在所属房间且未开局时可创建/更新该房间下一局的分享码；原四字符房间码继续只用于定位。
-- guest ticket 首次 hello 消耗后，由 Lobby 按票据范围进入指定房间，不接受客户端传入的其他房间号。访客不能发起匹配队列、创建房间、旁观或替账号创建/启动后续对局；房内准备、聊天及当前局游戏操作沿用现有成员规则。
+- 房间内账号玩家通过 `room.invite.create` 创建或轮换该房间下一局分享码；开局后拒绝创建，原四字符房间码继续只用于定位。
+- 访客 authTicket 首次 hello 消耗后，由 Lobby 按票据范围进入指定房间，不接受客户端传入的其他房间号。访客不能发起匹配队列、创建房间、旁观或替账号创建/启动后续对局；房内准备、聊天及当前局游戏操作沿用现有成员规则。
 - 分享码在比赛开始的串行边界关闭新兑换，并将已加入访客绑定到唯一 generation。只有这批访客可在该场活动期间以各自 token 重连。
 - 在 match finish/cancel/replace、room close 和失效清理路径中撤销邀请和 guest Session；连接中的访客可收到当前局最终结果，但不得恢复或进入下一局。
 
@@ -103,9 +105,9 @@
 
 ## Task 6: 接入标题页、房间邀请与语言资源
 
-- 标题页提供 WGS 登录、分享码/分享链接进入；登录及访客都以 Stronghold 本地重连 token 参加 hello，回调只把 Stronghold 登录票据经 fragment 交给页面，读取后立即移除 fragment。
+- 标题页提供 WGS 登录、分享码/分享链接进入；首次 hello 发送短时 `authTicket`，之后仅使用 Stronghold 本地重连 `token`；回调票据经 fragment 交给页面，读取后立即移除 fragment。
 - 邀请链接将分享秘密放在 URL fragment，前端读取后调用 POST 兑换并清除 fragment；不要将秘密放 query、访问日志、复制以外的持久化或分析事件。
-- 房间仅向有账号身份的玩家显示“生成/复制本局分享码”；区分原房间定位码与一次性局邀请。
+- 房间仅向有账号身份的玩家显示 `room.invite.create` 入口；区分原房间定位码与单局分享码。
 - 按仓库语言资源来源维护新增 UI 文案，不改已有缩放/布局规则。
 - 前端的拒绝/过期状态显示明确登录或获取新分享码的提示；服务器仍执行全部权限判断。
 
