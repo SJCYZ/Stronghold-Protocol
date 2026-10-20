@@ -437,6 +437,7 @@ export const C2S = {
   // host confirmed — a seat that changed hands meanwhile is refused
   'room.kick': { seat: (v) => isInt(v, 0, MAX_ROOM_CAPACITY - 1), playerId: isId },
   'room.start': {},
+  'room.invite.create': {},
   // Console is a room owner opt-in. The warning/countdown is enforced by the browser; the server still checks room
   // ownership, match state and the matchmaking exclusion before changing the room flag.
   'room.console.enable': {},
@@ -569,7 +570,7 @@ export const C2S = {
 export const S2C = [
   'welcome', 'ok', 'error', 'pong', 'presence',
   'site.announcement', // { serverNow, announcement, popupAnnouncement } — popup endAt may be null, format plain/markdown
-  'room.state', 'room.closed', 'match.queue',
+  'room.state', 'room.closed', 'room.invite', 'match.queue',
   'm.public', 'm.private', 'm.field', 'm.toast', 'm.ticker', 'm.emote', 'm.chat', 'm.result',
   'm.state', // opt-in stateDelta: 1: { kind, seq, full } or { kind, seq, base, patch }
   // m.layer { playerId, bondId, add } — own live prep layer gain; ephemeral, never replayed on resync.

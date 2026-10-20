@@ -160,7 +160,7 @@ import { cleanPlayerCard, isCardPortraitId, cardPortraitOperatorId, isCardAvatar
 //     code; a player never switches to spectating in place (ALREADY). Disconnect / grace / reconnect / expiry work as for
 //     a player seat (the seat is kept and given back on resume).
 
-import { randomBytes, randomInt } from 'node:crypto';
+import { createHash, randomBytes, randomInt } from 'node:crypto';
 import { ERR, MAX_SEATS, MAX_ROOM_CAPACITY, DEFAULT_ROOM_CAPACITY, MAX_SPECTATORS, ROOM_CODE_LEN, DIFFICULTIES, modeIdFor } from '../shared/constants.js';
 import { checkLoadout, checkLoadoutOps, cultivationCharIds, checkNotOwned, checkDiyPicks, charPotentialChanges } from '../shared/protocol.js';
 import { encode, isDroppable, isErrCode, sendRaw, sendSession } from './net.js';
@@ -290,6 +290,8 @@ export class Room {
     this.matchKey = null;
     /** @type {{ queueId: string, queuedAt: number, count: number, capacity: number } | null} */
     this.matching = null;
+    /** Persist only this invite summary; plaintext share codes are never stored. */
+    this.shareInvite = null;
     /** Owner opt-in for the in-match developer console. Public matchmaking never has a Room flag. */
     this.consoleEnabled = false;
     this.createdAt = now;
@@ -337,6 +339,7 @@ export class Room {
       aiPicksLast: this.aiPicksLast,
       inMatch: !!this.match,
       matching: this.matching ? { ...this.matching } : null,
+      inviteAvailable: !!this.shareInvite?.open,
       consoleEnabled: !!this.consoleEnabled,
       seats: this.seats.map((s) => (s
         ? { seat: s.seat, playerId: s.playerId, name: s.name, isBot: s.isBot, ready: s.ready, connected: s.connected && !s.left,
@@ -606,15 +609,134 @@ export class Lobby {
    * @param {any} msg
    * @returns {{ ok: true } | { error: string, detail?: string } | Promise<{ ok: true } | { error: string, detail?: string }>}
    */
-  onMessage(session, msg) {
+  async onMessage(session, msg) {
     // Review outside the room queue; only a verdict still bound to this session may enter it.
+    if (session.authType === 'guest' && !this.guestMessageAllowed(session, msg)) return fail(ERR.BAD_MSG, 'guest access is limited to the invited match');
+    const boundary = ['room.create', 'room.join', 'room.start', 'match.join', 'room.spectate', 'room.invite.create'].includes(msg?.t);
+    if (boundary && session.authType !== 'account') return fail(ERR.BAD_MSG, 'account authentication required');
+    if (msg?.t === 'room.start' || msg?.t === 'match.join') {
+      const room = this.roomOf(session);
+      if (room) return this.serial(room, async () => {
+        if (!await this.introspectAccount(session)) return fail(ERR.BAD_MSG, 'account session expired');
+        return this.handleMessage(session, msg);
+      });
+    }
+    if (boundary && !await this.introspectAccount(session)) return fail(ERR.BAD_MSG, 'account session expired');
     if (typeof msg?.t === 'string' && msg.t.startsWith('g.')) return this.routeGame(session, msg);
-    const room = this.queuedRoom(session);
+    const directRoom = msg?.t === 'room.join' ? this.rooms.get(String(msg.code || '').trim().toUpperCase()) : this.roomOf(session);
+    const queued = this.queuedRoom(session);
+    const room = queued || (['room.join', 'room.start', 'room.invite.create', 'room.spectate'].includes(msg?.t) ? directRoom : null);
     if (!room) return this.handleMessage(session, msg);
     // a queued room.contentReady speaks for the page that sent it: the seat and its generation now — a disconnect in
     // between bumps it, and the page that comes back checks the set again (contentReady)
     const ctx = msg && msg.t === 'room.contentReady' ? { from: this.seatGen(room, session.playerId) } : null;
     return this.serial(room, () => this.handleMessage(session, msg, ctx));
+  }
+
+  async introspectAccount(session) {
+    if (session?.authType !== 'account' || !this.auth?.introspect) return false;
+    try { return await this.auth.introspect(session.wgsSessionRef, session.wgsSubject, session.wgsAuthVersion) === true; }
+    catch { return false; }
+  }
+
+  guestMessageAllowed(session, msg) {
+    if (session.guestRevoked) return false;
+    if (msg?.t === 'state.resync') return true;
+    if (['room.create', 'room.join', 'room.start', 'room.invite.create', 'room.spectate', 'room.removeSpectator', 'match.join', 'match.leave'].includes(msg?.t)) return false;
+    const room = this.rooms.get(session.guestRoomId);
+    const seat = room?.seatOf(session.playerId);
+    if (!session.guestAccepted || !room || room.disposed || session.roomCode !== room.code || !seat || seat.left) return false;
+    return !room.match ? room.matchCount + 1 === session.guestGeneration
+      : room.matchCount === session.guestGeneration && room.matchCtx && !room.matchCtx.ended;
+  }
+
+  /** Invites are redeemed and accepted through this same serialized room queue as room.start. */
+  async redeemShareCode(shareCode) {
+    if (typeof shareCode !== 'string' || shareCode.length > 128) return null;
+    const digest = createHash('sha256').update(shareCode).digest('hex');
+    for (const room of this.rooms.values()) {
+      if (room.shareInvite?.digest !== digest) continue;
+      return this.serial(room, () => {
+        const invite = room.shareInvite;
+        if (!invite || invite.digest !== digest || !invite.open || room.disposed || room.match || room.matching
+          || invite.generation !== room.matchCount + 1) return null;
+        return { inviteId: invite.inviteId, roomId: room.code, generation: invite.generation };
+      });
+    }
+    return null;
+  }
+
+  async acceptGuestSession(session) {
+    const room = this.rooms.get(session?.guestRoomId);
+    if (!room) return false;
+    return this.serial(room, () => {
+      const invite = room.shareInvite;
+      if (!invite || invite.inviteId !== session.guestInviteId || invite.generation !== session.guestGeneration
+        || !invite.open || session.guestRevoked || room.disposed || room.match || room.matching
+        || room.mode !== 'coop' || room.freeSeat() < 0 || room.matchCount + 1 !== session.guestGeneration) return false;
+      const seat = room.freeSeat();
+      session.guestAccepted = true;
+      room.seats[seat] = { ...this.humanSeat(seat, session), connected: true };
+      session.roomCode = room.code;
+      session.notice = null;
+      session.pendingResult = null;
+      if (!room.hostId) room.hostId = session.playerId;
+      this.broadcastState(room);
+      return true;
+    });
+  }
+
+  async validateGuestSession(session) {
+    if (session?.authType !== 'guest' || session.guestRevoked || !session.guestInviteId || !session.guestRoomId || !Number.isSafeInteger(session.guestGeneration)) return false;
+    const room = this.rooms.get(session.guestRoomId);
+    const seat = room?.seatOf(session.playerId);
+    if (!room || room.disposed || session.roomCode !== room.code || !seat || seat.left) return false;
+    return session.guestAccepted === true && room.matchCount === session.guestGeneration
+      && !!room.match && !room.matchCtx?.ended;
+  }
+
+  revokeRoomInvite(room) {
+    room.shareInvite = null;
+    for (const session of this.registry.all()) {
+      if (session.authType === 'guest' && session.guestRoomId === room.code) session.guestRevoked = true;
+    }
+  }
+
+  invalidateRoomGuests(room, reason = 'match-cancelled') {
+    this.revokeRoomInvite(room);
+    for (let i = 0; i < room.seats.length; i++) {
+      const seat = room.seats[i];
+      const guest = seat && this.registry.byId(seat.playerId);
+      if (guest?.authType !== 'guest' || guest.guestRoomId !== room.code) continue;
+      this.clearGrace(seat.playerId);
+      this.dropReplay(room, seat.playerId);
+      guest.guestRevoked = true;
+      guest.roomCode = null;
+      guest.pendingResult = null;
+      if (guest.connected) sendSession(guest, { t: 'room.closed', reason });
+      else guest.notice = reason;
+      room.seats[i] = null;
+    }
+    if (room.hostId && !room.seatOf(room.hostId)) this.migrateHost(room);
+    if (!room.disposed) this.broadcastState(room);
+  }
+
+  issueRoomInvite(session) {
+    const room = this.roomOf(session);
+    if (!room || room.seatOf(session.playerId) == null) return fail(ERR.NOT_IN_ROOM);
+    if (room.mode !== 'coop') return fail(ERR.ROOM_FULL, 'solo room');
+    if (room.match || room.matching || room.disposed) return fail(ERR.ROOM_STARTED);
+    const code = randomBytes(16).toString('base64url');
+    const invite = {
+      inviteId: randomBytes(16).toString('base64url'),
+      digest: createHash('sha256').update(code).digest('hex'),
+      generation: room.matchCount + 1,
+      open: true,
+    };
+    room.shareInvite = invite;
+    this.broadcastState(room);
+    sendSession(session, { t: 'room.invite', code });
+    return OK;
   }
 
   /** A seat (or spectator seat) of `room` and its content generation (header "Gameplay plugins"), or null. */
@@ -685,6 +807,7 @@ export class Lobby {
       case 'room.removeBot': return this.removeBot(session, msg);
       case 'room.kick': return this.kick(session, msg);
       case 'room.start': return this.start(session);
+      case 'room.invite.create': return this.issueRoomInvite(session);
       case 'room.console.enable': return this.enableConsole(session);
       case 'room.console.disable': return this.disableConsole(session);
       case 'room.rerollSetup': return this.rerollSetup(session, msg);
@@ -1105,6 +1228,7 @@ export class Lobby {
         isBot: false, connected: true, skins: s.skins || null, loadout: s.loadout || null, ops: s.ops || null,
         notOwned: s.notOwned || null, diy: s.diy || null }));
       const entry = this.makeQueueEntry({ mode, difficulty: room.difficulty, room, players });
+      if (room.shareInvite) room.shareInvite.open = false;
       this.enqueueMatchEntry(entry);
       this.broadcastState(room);
       this.processMatchQueues();
@@ -1251,6 +1375,7 @@ export class Lobby {
   /** A rejected async launch must clear the client's old queue UI, without cancelling a newer ticket/game. */
   failedQueuedStart(entries) {
     for (const entry of entries) {
+      if (entry.room && !entry.room.disposed && !entry.room.match) this.invalidateRoomGuests(entry.room, 'match-cancelled');
       const players = entry.players.filter((p) => {
         const session = this.registry.byId(p.playerId);
         return !p.isBot && session && !this.activeMatchOf(session) && !session.matchQueue;
@@ -1280,6 +1405,7 @@ export class Lobby {
       if (!bucket.length) this.matchQueues.delete(`${entry.mode}:${entry.difficulty}`);
     }
     this.removeQueueReferences(entry);
+    if (entry.room && !entry.room.disposed) this.invalidateRoomGuests(entry.room, 'match-cancelled');
     this.sendQueueState(entry, reason === 'cancelled' ? 'cancelled' : 'closed', reason);
     this.broadcastQueueCounts(entry.mode, entry.difficulty);
     if (entry.room && !entry.room.disposed) this.broadcastState(entry.room);
@@ -1773,7 +1899,14 @@ export class Lobby {
       this.limitWarn(`match limit (${this.opts.maxMatchesPerAddr}) reached for ${session.addr}`);
       return fail(ERR.RATE, 'too many running matches from your network');
     }
-    return this.startMatch(room, key);
+    if (room.shareInvite) room.shareInvite.open = false;
+    const result = this.startMatch(room, key);
+    if (result && typeof result.then === 'function') return result.then((answer) => {
+      if (answer?.error) this.invalidateRoomGuests(room, 'match-cancelled');
+      return answer;
+    });
+    if (result?.error) this.invalidateRoomGuests(room, 'match-cancelled');
+    return result;
   }
 
   /** Host authorization stays in the lobby; the match owns the vote and setup. */
@@ -2388,6 +2521,7 @@ export class Lobby {
     room.matchCtx = null;
     room.matchKey = null;
     room.replay = this.buildReplay(room, ctx);
+    this.invalidateRoomGuests(room, 'match-ended');
     setImmediate(() => this.disposeMatchCtx(ctx));
     // a match of gameplay plugins whose match host stopped (header "Gameplay plugins"; its members were told: proxy.js)
     const why = summary && typeof summary.reason === 'string' && summary.reason.startsWith('plugin-') ? ` (${summary.reason}${summary.detail ? `: ${summary.detail}` : ''})` : '';
@@ -2548,6 +2682,7 @@ export class Lobby {
    * in a match host (header "Gameplay plugins").
    */
   routeGame(session, msg) {
+    if (session.authType === 'guest' && !this.guestMessageAllowed(session, msg)) return fail(ERR.BAD_MSG, 'guest access is limited to the invited match');
     if (msg.t === 'g.chat' && this.nameModeration?.checkChat) {
       if (!validChatText(msg.text)) return fail(ERR.BAD_MSG);
       const active = this.activeMatchOf(session);
@@ -2761,6 +2896,7 @@ export class Lobby {
    */
   removeMember(room, playerId) {
     const session = this.registry.byId(playerId);
+    if (session?.authType === 'guest') session.guestRevoked = true;
     const active = session?.activeMatchCtx;
     if (session && session.roomCode === room.code) session.roomCode = null;
     this.clearGrace(playerId);
@@ -2851,6 +2987,7 @@ export class Lobby {
   disposeRoom(room, reason) {
     if (room.disposed) return;
     room.disposed = true;
+    this.revokeRoomInvite(room);
     if (this.rooms.get(room.code) === room) { this.trustedRuntime?.event('roomClosed',{room:room.toState()}); this.rooms.delete(room.code); }
     const ctx = room.matchCtx;
     room.match = null;
