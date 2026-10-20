@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
@@ -52,15 +53,19 @@ test('both HTTP index endpoints expose the same route order, support HEAD and re
   await mkdir(dataDir);
   await mkdir(publicDir);
   await writeFile(path.join(dataDir, 'assets.json'), JSON.stringify({ ui: { a: pack.files[0].url } }));
-  await writeFile(path.join(dataDir, 'resource-packs.json'), JSON.stringify({
+  const rawPackIndex = Buffer.from(`${JSON.stringify({
     format: 'stronghold-resource-pack-index', version: 1, maxBytes: RESOURCE_PACK_MAX_BYTES, packs: [pack],
-  }));
+  }, null, 2)}\n`);
+  await writeFile(path.join(dataDir, 'resource-packs.json'), rawPackIndex);
   const cdnBase = 'https://cdn.example/prefix';
   const resourcePackRoutes = parseResourcePackRoutes(['example.com/data/{file}', '/mirror/{id}.zip']);
   const makeServer = async (routes) => {
     const handler = createStaticHandler({ publicDir, dataDir, sharedDir: path.resolve('shared'), cdnBase,
       resourcePackRoutes: routes });
-    const server = http.createServer((req, res) => { void handler(req, res, req.url, ''); });
+    const server = http.createServer((req, res) => {
+      const url = new URL(req.url, 'http://localhost');
+      void handler(req, res, url.pathname, url.search.slice(1));
+    });
     await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
     t.after(() => new Promise((resolve) => server.close(resolve)));
     return `http://127.0.0.1:${server.address().port}`;
@@ -82,6 +87,17 @@ test('both HTTP index endpoints expose the same route order, support HEAD and re
     assert.equal((await fetch(origin + endpoint, { headers: { 'If-None-Match': etag } })).status, 304);
     assert.notEqual((await fetch(changed + endpoint)).headers.get('etag'), etag, 'route changes invalidate cached metadata');
   }
+  const rawHash = createHash('sha256').update(rawPackIndex).digest('hex');
+  const versionedUrl = `${origin}/data/resource-packs.json?v=${rawHash.slice(0, 8)}`;
+  const versioned = await fetch(versionedUrl);
+  assert.equal(versioned.status, 200);
+  assert.equal(versioned.headers.get('content-length'), String(rawPackIndex.length));
+  assert.equal(versioned.headers.get('etag'), `"resource-packs-${rawHash}"`);
+  assert.deepEqual(Buffer.from(await versioned.arrayBuffer()), rawPackIndex,
+    'hash-versioned content files must be served byte for byte');
+  const staleVersion = await fetch(`${origin}/data/resource-packs.json?v=00000000`);
+  assert.deepEqual((await staleVersion.json()).packs[0].urls, ['https://example.com/data/ui-01-0123456789ab.zip',
+    '/mirror/ui-01.zip', cdnBase + pack.url], 'non-matching versions keep the routed manifest response');
 });
 
 test('failed routes try CDN exactly once, skipping invalid or duplicate mirrors', async () => {

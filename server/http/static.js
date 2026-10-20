@@ -201,12 +201,23 @@ export function createStaticHandler({ publicDir, dataDir, sharedDir, simDir = pa
     if (decoded.toLowerCase() === `/data/${RESOURCE_PACK_MANIFEST_FILE}`) {
       const file = path.join(dataDir, RESOURCE_PACK_MANIFEST_FILE);
       try {
-        const doc = JSON.parse(await fsp.readFile(file, 'utf8'));
+        const raw = await fsp.readFile(file);
+        const st = await fsp.stat(file);
+        const rawHash = createHash('sha256').update(raw).digest('hex');
+        if (new URLSearchParams(query).get('v') === rawHash.slice(0, 8)) {
+          const etag = `"resource-packs-${rawHash}"`;
+          const headers = { 'Content-Type': MIME['.json'], 'Cache-Control': 'no-cache', ETag: etag,
+            'Last-Modified': st.mtime.toUTCString(), 'Content-Length': raw.length };
+          if (isNotModified(req, etag, st.mtime)) { res.writeHead(304, headers); res.end(); return; }
+          res.writeHead(200, headers);
+          res.end(req.method === 'HEAD' ? undefined : raw);
+          return;
+        }
+        const doc = JSON.parse(raw.toString('utf8'));
         if (doc.format === 'stronghold-resource-pack-index' && doc.version === 1) {
           doc.packs = routeResourcePacks(doc.packs, cdn, resourcePackRoutes);
         }
         const body = Buffer.from(JSON.stringify(doc));
-        const st = await fsp.stat(file);
         const etag = `"resource-packs-${createHash('sha256').update(body).digest('hex')}"`;
         const headers = { 'Content-Type': MIME['.json'], 'Cache-Control': 'no-cache', ETag: etag,
           'Last-Modified': st.mtime.toUTCString(), 'Content-Length': body.length };
