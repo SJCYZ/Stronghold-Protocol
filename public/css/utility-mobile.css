@@ -124,7 +124,7 @@
 .room-screen .invite { gap: calc(.06 * var(--ui-unit)); padding: calc(.08 * var(--ui-unit)); }
 .room-screen .invite__code { gap: .06em; }
 .room-screen .invite__code span { width: .85em; height: 1.2em; font-size: calc(.32 * var(--utility-text)); }
-.room-screen .seats { grid-template-columns: repeat(4, minmax(0, calc(3.2 * var(--ui-unit)))); padding: calc(.2 * var(--ui-unit)); gap: calc(.2 * var(--ui-unit)); grid-template-rows: auto; align-content: start; overflow-y: auto; }
+.room-screen .seats { grid-template-columns: repeat(4, minmax(0, calc(3.2 * var(--ui-unit)))); padding: calc(.2 * var(--ui-unit)); gap: calc(.2 * var(--ui-unit)); grid-template-rows: max-content; grid-auto-rows: max-content; align-content: start; overflow-y: auto; }
 .room-screen .seats--solo { grid-template-columns: calc(3.2 * var(--ui-unit)) minmax(0, calc(6.4 * var(--ui-unit))); }
 .room-screen .solo-brief { min-height: 0; overflow-y: auto; }
 .room-screen .room-bar { height: auto; min-height: calc(1.2 * var(--ui-unit)); gap: calc(.2 * var(--ui-unit)); padding: calc(.12 * var(--ui-unit)) calc(.25 * var(--ui-unit)); }
@@ -167,7 +167,6 @@
 /* Truly narrow windows retain all controls and content. Phones still use the global landscape gate. */
 @media (max-aspect-ratio: 1/1) {
   .resource-manager__options, .utility-modal .resource-manager__tiers { grid-template-columns: minmax(0, 1fr); }
-  .room-screen .seats { grid-template-columns: repeat(2, minmax(0, calc(3.2 * var(--ui-unit)))); grid-auto-rows: auto; }
   .room-screen .seats--solo { grid-template-columns: minmax(0, 1fr); }
   .room-screen .topbar__left { flex-wrap: wrap; }
   .room-screen .connection-status { flex-wrap: wrap; }

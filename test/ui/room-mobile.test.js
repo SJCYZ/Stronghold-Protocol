@@ -50,7 +50,7 @@ test('room artwork frames grow to 1:2 and images fill them without side gutters 
     assert.equal(property(selectors, 'object-position', width, height), 'center');
     assert.equal(property(selectors, 'inset', width, height), '0');
     assert.equal(property(selectors, 'transform', width, height), 'none');
-    if (width > 560) assert.equal(property(['.seats', '.room-screen .seats'], 'grid-template-rows', width, height), 'auto', 'the row grows with the taller artwork and nameplate');
+    if (width > 560) assert.equal(property(['.seats', '.room-screen .seats'], 'grid-template-rows', width, height), 'max-content', 'the row reserves its full artwork and nameplate height');
     assert.equal(property(['.seats', '.room-screen .seats'], 'overflow-y', width, height), 'auto');
   }
 });
@@ -117,16 +117,17 @@ test('short rooms keep a seat region and scroll; portrait rows grow with their a
   assert.equal(property(['.room-screen--coop'], 'overflow-y', 640, 270), 'auto');
   assert.equal(property(['.seats', '.room-screen .seats', '.room-screen--coop .seats'], 'min-height', 640, 270), 'calc(3.6 * var(--ui-unit))');
   assert.equal(property(['.seats', '.room-screen .seats', '.room-screen--coop .seats'], 'flex', 640, 270), '1 0 calc(3.6 * var(--ui-unit))');
-  assert.equal(property(['.seats', '.room-screen .seats'], 'grid-template-rows', 390, 844), 'auto');
-  assert.equal(property(['.seats', '.room-screen .seats'], 'grid-auto-rows', 390, 844), 'auto');
+  assert.equal(property(['.seats', '.room-screen .seats'], 'grid-template-rows', 390, 844), 'max-content');
+  assert.equal(property(['.seats', '.room-screen .seats'], 'grid-auto-rows', 390, 844), 'max-content');
   assert.equal(property(['.room-screen .rseat__art'], 'aspect-ratio', 640, 360), '1 / 2');
 });
 
-test('twenty-seat rooms keep all seat cards in a responsive scrollable grid', () => {
-  for (const [width, height] of [[1920, 1080], [844, 390], [390, 844]]) {
-    assert.match(property(['.room-screen .seats'], 'grid-template-columns', width, height), /repeat\([42], minmax\(0, calc\(3\.[28] \* var\(--ui-unit\)\)\)\)/);
+test('twenty-seat rooms keep four seats per row and scroll on every viewport shape', () => {
+  for (const [width, height] of [[1920, 1080], [946, 1084], [844, 390], [640, 360], [390, 844], [320, 568]]) {
+    assert.equal(property(['.room-screen .seats'], 'grid-template-columns', width, height), 'repeat(4, minmax(0, calc(3.2 * var(--ui-unit))))', `${width}×${height}: each row keeps four seats`);
     assert.equal(property(['.room-screen .rseat'], 'min-height', width, height), 'calc(3.5 * var(--ui-unit, 1rem))');
-    assert.equal(property(['.room-screen .seats'], 'grid-auto-rows', width, height), 'auto');
+    assert.equal(property(['.room-screen .seats'], 'grid-template-rows', width, height), 'max-content');
+    assert.equal(property(['.room-screen .seats'], 'grid-auto-rows', width, height), 'max-content');
     assert.equal(property(['.room-screen .seats'], 'overflow-y', width, height), 'auto');
     assert.equal(property(['.room-screen--coop'], 'overflow-y', width, height), 'auto');
   }
