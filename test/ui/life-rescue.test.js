@@ -35,6 +35,11 @@ describe('life rescue UI', () => {
     assert.equal(rescueTargets(pub, players, 'target', 10, 3_000)[0].eligible, false, 'target cannot rescue itself');
   });
 
+  test('re-exports rescueTargets through the gameLogic barrel used by GameScreen', async () => {
+    const gameLogic = await import('../../public/js/ui/gameLogic.js');
+    assert.equal(gameLogic.rescueTargets, rescueTargets);
+  });
+
   test('client rescue intent carries only targetId and failures use existing action errors', () => {
     const source = read('public/js/screens/game.js');
     assert.match(source, /act\('g\.rescue',\s*\{\s*targetId:\s*target\.playerId\s*\}\)/);
