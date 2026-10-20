@@ -417,7 +417,12 @@ export function PauseButton({ paused, busy = false, onToggle }) {
 }
 
 /** Host control for the server-confirmed combat speed. */
-export function CombatSpeedControl({ speed = 2, canEdit = false, paused = false, onSpeed = null }) {
+export function isActiveCombatSpeedField(field, battle) {
+  return !!(field?.live === true && typeof field.battleId === 'string' && field.battleId
+    && battle?.battleId === field.battleId && !battle.loading && !battle.done);
+}
+
+export function CombatSpeedControl({ speed = 2, canEdit = false, active = false, paused = false, onSpeed = null }) {
   const confirmed = Number.isFinite(speed) ? speed : 2;
   const [draft, setDraft] = useState(confirmed);
   const confirmedRef = useRef(confirmed);
@@ -425,9 +430,9 @@ export function CombatSpeedControl({ speed = 2, canEdit = false, paused = false,
   const committedRef = useRef(null);
   confirmedRef.current = confirmed;
   useEffect(() => { draftRef.current = confirmed; committedRef.current = null; setDraft(confirmed); }, [confirmed]);
-  const disabled = !canEdit || paused;
+  const disabled = !canEdit || !active || paused;
   const commit = async () => {
-    if (disabled) return;
+    if (disabled || !active) return;
     const selected = Number(draftRef.current);
     if (!Number.isFinite(selected) || selected === confirmedRef.current || committedRef.current === selected) return;
     committedRef.current = selected;
@@ -459,7 +464,7 @@ export function CombatSpeedControl({ speed = 2, canEdit = false, paused = false,
  *   pause?: { show: boolean, paused: boolean, busy?: boolean, onToggle: () => void } | null,
  *   live?: { pending: number, unite: boolean, left?: number|null } | null,
  *   spectators?: any[]|null, myId?: any, isHost?: boolean, onRemoveSpectator?: ((playerId: any) => any)|null,
- *   speed?: number, speedPaused?: boolean, onSpeed?: ((speed: number) => any)|null }} props
+ *   speed?: number, speedActive?: boolean, speedPaused?: boolean, onSpeed?: ((speed: number) => any)|null }} props
  *   spectators: the room's spectator seats (room.state) — the 观战席 capsule beside the latency (SpectatorPill; the host removes)
  *   room: room.state — a match with gameplay plugins shows the small MOD mark beside the difficulty (DESIGN §32.6)
  *   frozenAt: the server time every clock shows while the solo match is paused (null = live)
@@ -467,7 +472,7 @@ export function CombatSpeedControl({ speed = 2, canEdit = false, paused = false,
  *     `left` (a leaker in 联防): its enemies still standing — the capsule's ×N tag
  */
 export function TopBar({ pub, priv, conn, hud, total, drawer, onExit, onDrawer, onReady, readyBusy, readyCount, playerCount, pen = false, penAvail = false, onPen = () => {},
-  config = null, frozenAt = null, pause = null, live = null, spectator = false, speed = 2, speedPaused = false, onSpeed = null,
+  config = null, frozenAt = null, pause = null, live = null, spectator = false, speed = 2, speedActive = false, speedPaused = false, onSpeed = null,
   spectators = null, myId = null, isHost = false, onRemoveSpectator = null, room = null }) {
   const phase = pub?.phase;
   const boss = isBossPhase(phase);
@@ -544,7 +549,7 @@ export function TopBar({ pub, priv, conn, hud, total, drawer, onExit, onDrawer, 
           : html`<${Countdown} deadline=${pub?.deadline} total=${total ?? undefined} size="md" />`}
         ${pause && (pause.show || pause.paused) ? html`<${PauseButton} paused=${!!pause.paused} busy=${pause.busy} onToggle=${pause.onToggle} />` : null}
       </div>
-      ${isCombatPhase(phase) ? html`<${CombatSpeedControl} speed=${speed} canEdit=${isHost} paused=${speedPaused} onSpeed=${onSpeed} />` : null}
+      ${isCombatPhase(phase) ? html`<${CombatSpeedControl} speed=${speed} canEdit=${isHost} active=${speedActive} paused=${speedPaused} onSpeed=${onSpeed} />` : null}
       <${OvertimeWarning} ot=${ot} />
       ${showReady ? html`<${ReadyToggle} priv=${priv} onToggle=${onReady} busy=${readyBusy} readyCount=${readyCount} total=${playerCount} />` : null}
     </div>
