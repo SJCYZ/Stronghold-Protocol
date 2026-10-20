@@ -1,6 +1,6 @@
 services:
   stronghold:
-    image: stronghold-protocol:e01036ae-local
+    image: stronghold-protocol:295444ac-local
     restart: unless-stopped
     stop_grace_period: 70s
     environment:
@@ -23,6 +23,7 @@ services:
       - ./runtime/skins.json:/app/data/skins.json:ro
       - ./runtime/asset-hashes.json:/app/data/asset-hashes.json:ro
       - ./runtime/resource-packs.json:/app/data/resource-packs.json:ro
+      - ./runtime/plugins:/app/plugins
       - ../../public/resource-packs:/app/public/resource-packs:ro
     depends_on:
       - redis

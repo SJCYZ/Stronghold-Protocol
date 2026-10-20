@@ -373,6 +373,8 @@ docker run -d --name stronghold -p 3000:3000 --restart unless-stopped \
 命名卷首次使用继承目录的 `node` 用户权限；宿主机绑定目录须允许容器里的 `node` 用户写入（工作台钥匙和草稿也写在这里）。
 镜像不会复制构建机器自己的插件、插件打包产物或备份。
 
+生产 Compose 将 `deploy/production/runtime/plugins` 挂载到 `/app/plugins`，与 `runtime/` 下的资源清单及宿主机素材目录一起保留在 ECS。首次为已有容器启用该挂载前，先将容器当前 `/app/plugins` 内容完整复制到宿主机目录，再重建游戏容器；否则新挂载会遮住容器原有目录。不要覆盖已有的工作台密钥、插件策略或插件目录。
+
 脚本模式用 `-e SP_PLUGIN_SCRIPTS=sandbox` 显式开启；默认仍关闭。容器默认监听 `0.0.0.0`，
 原生受信任执行因此必须选择 `trusted-force` 并按第 10 节审查与固定哈希。需要工作台时从本机或局域网地址访问。
 
