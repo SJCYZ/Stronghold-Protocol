@@ -1,6 +1,6 @@
 services:
   stronghold:
-    image: stronghold-protocol:295444ac-local
+    image: stronghold-protocol:1b86f438-local
     restart: unless-stopped
     stop_grace_period: 70s
     environment:
