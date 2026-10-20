@@ -249,6 +249,10 @@ function wireNet() {
     popupAnnouncement: announcementFromMessage(msg, 'popup') }));
   net.on('helloError', (err) => {
     if (err.code === 'SESSION_IN_USE') identity.rejectToken();
+    if (err.code === 'AUTH_TICKET_INVALID') {
+      identity.clearToken();
+      identity.setAuthType(null);
+    }
     if (returnToTitleAfterNameReview(err)) {
       clearTimeout(restoreTimer);
       clearTimeout(joinTimer);

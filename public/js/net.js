@@ -49,6 +49,7 @@ export const CLIENT_ERR_TEXT = Object.freeze({
   CLOSED: N_('连接已关闭'),
   REPLACED: N_('该身份已在其他页面登录'),
   VERSION: N_('客户端版本与服务器不一致，请刷新页面'),
+  AUTH_TICKET_INVALID: N_('登录或分享码已过期，请重新登录或获取新的单局分享码'),
 });
 
 /** Server close code: the session was taken over by another socket (server/net.js CLOSE.REPLACED). */
@@ -59,6 +60,52 @@ export const CLOSE_HELLO_TIMEOUT = 4002;
 export const CLOSE_SERVER_FULL = 4003;
 /** A pre-hello socket must have lived this long before a 4002 close is swapped quietly (no loop). */
 const QUIET_SWAP_MIN_AGE_MS = 5000;
+
+function readAuthFragment() {
+  if (typeof globalThis.location === 'undefined' || !location.hash) return { authTicket: '', shareCode: '' };
+  const params = new URLSearchParams(location.hash.slice(1));
+  const authTicket = params.getAll('authTicket');
+  const shareCode = params.getAll('shareCode');
+  if (!authTicket.length && !shareCode.length) return { authTicket: '', shareCode: '' };
+  try { history.replaceState(history.state, '', location.pathname + location.search); } catch { /* keep secrets out of later navigation when supported */ }
+  if (authTicket.length + shareCode.length !== 1) return { authTicket: '', shareCode: '' };
+  return authTicket.length ? { authTicket: authTicket[0], shareCode: '' } : { authTicket: '', shareCode: shareCode[0] };
+}
+
+const initialAuth = readAuthFragment();
+let pendingAuthTicket = initialAuth.authTicket;
+let initialShareCode = initialAuth.shareCode;
+
+/** Redeem a share secret without putting it in a URL, storage, or logs. */
+export async function redeemGuestShareCode(shareCode, fetchFn = globalThis.fetch) {
+  const response = await fetchFn('/auth/guest/redeem', { method: 'POST', cache: 'no-store', credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ shareCode }) });
+  let body = null;
+  try { body = await response.json(); } catch { /* use the stable status below */ }
+  if (!response.ok || typeof body?.authTicket !== 'string') {
+    const err = new NetError(body?.error || (response.status === 403 ? 'SHARE_CODE_UNAVAILABLE' : 'AUTH_UNAVAILABLE'));
+    throw err;
+  }
+  setAuthTicket(body.authTicket, 'guest');
+  return true;
+}
+
+/** Take and forget the launch-time share secret after the UI has begun its POST exchange. */
+export function takeInitialShareCode() {
+  const code = initialShareCode;
+  initialShareCode = '';
+  return code;
+}
+
+/** Install a short-lived ticket only in memory; the server remains the identity authority. */
+export function setAuthTicket(ticket, type) {
+  if (typeof ticket !== 'string' || !ticket || ticket.length > 128 || !['account', 'guest'].includes(type)) return false;
+  pendingAuthTicket = ticket;
+  identity.clearToken();
+  identity.setAuthType(type);
+  identity.setEntered(false);
+  return true;
+}
 
 /**
  * Human readable (Chinese) text for an error code.
@@ -168,6 +215,9 @@ export class Net {
     this._helloRid = null;
     this._helloSentName = null;
     this._helloToken = null;
+    this._helloTicket = null;
+    this._helloAuthTicket = false;
+    this._authTicketAttempted = false;
     this._lastRx = 0;
     this._unansweredSince = null; // time of the oldest ping sent since the last inbound frame
     this._clockSamples = [];   // [{ offset, rtt }]
@@ -390,8 +440,21 @@ export class Net {
     const rid = this._nextRid();
     const msg = { t: 'hello', rid, name: this.name, version: PROTOCOL_VERSION, stateDelta: STATE_DELTA_VERSION };
     let token = null;
-    try { token = this.getToken(); } catch { token = null; }
-    if (typeof token === 'string' && token.length > 0 && token.length <= 64) {
+    const ticket = pendingAuthTicket;
+    this._helloTicket = null;
+    if (typeof ticket === 'string' && ticket) {
+      msg.authTicket = ticket;
+      this._helloTicket = ticket;
+      this._helloAuthTicket = true;
+      pendingAuthTicket = null;
+      this._authTicketAttempted = true;
+    } else {
+      this._helloAuthTicket = false;
+      if (!this._authTicketAttempted) {
+        try { token = this.getToken(); } catch { token = null; }
+      }
+    }
+    if (!msg.authTicket && typeof token === 'string' && token.length > 0 && token.length <= 64) {
       msg.token = token;
       const claim = this.getTokenClaim();
       if (claim?.noReplace) msg.noReplace = true;
@@ -424,6 +487,8 @@ export class Net {
     this.playerId = msg.playerId ?? null;
     this.attempt = 0;
     this.lastError = null;
+    this._authTicketAttempted = false;
+    this._helloTicket = null;
     if (Number.isFinite(msg.serverNow)) this._addClockSample(msg.serverNow + (this.ping ?? 0) / 2 - this.now(), Infinity);
     this._setStatus('online');
     this._flushQueue();
@@ -434,7 +499,15 @@ export class Net {
     if (msg.code === 'SERVER_FULL') { this._stopAtCapacity(); return; }
     this._clearTimer('_helloTimer', 'clearTimeout');
     this._helloRid = null;
-    this.lastError = new NetError(msg.code, msg.msg, msg.detail);
+    if (this._authTicketAttempted && NAME_REVIEW_ERRORS.has(msg.code) && this._helloTicket) {
+      pendingAuthTicket = this._helloTicket;
+      this._authTicketAttempted = false;
+    }
+    const authDetail = typeof msg.detail === 'string'
+      && ['authentication required', 'account session expired', 'guest session expired'].includes(msg.detail);
+    this.lastError = this._authTicketAttempted || (this._helloToken && msg.code === 'BAD_MSG' && authDetail)
+      ? new NetError('AUTH_TICKET_INVALID') : new NetError(msg.code, msg.msg, msg.detail);
+    this._helloTicket = null;
     if (NAME_REVIEW_ERRORS.has(msg.code)) {
       if (this._helloHadSession) {
         this.name = this.helloName;
@@ -595,7 +668,8 @@ export class Net {
     if (t === 'welcome') {
       // A local ownership election can revoke a token after its hello went onto the wire.
       // Do not publish or persist that stale welcome, even if the server had already accepted it.
-      if (this._helloToken !== this.getToken()) { this.reconnectNow(); return; }
+      if (!this._helloAuthTicket && this._helloToken !== this.getToken()) { this.reconnectNow(); return; }
+      this._helloAuthTicket = false;
       this._onWelcome(msg);
     } else if (t === 'pong') {
       this._onPong(msg);
@@ -740,6 +814,7 @@ const K_WELCOME = 'sp.tokenWelcome'; // sessionStorage: { hash, at } from the fi
 const K_RECENT = 'sp.tokens';    // localStorage: this browser's recent tokens, most recent first
 const K_MATCHES = 'sp.matches'; // local metadata for explicit recovery of another closed tab's seat
 const K_ENTERED = 'sp.entered';  // sessionStorage: this tab passed the title screen
+const K_AUTH_TYPE = 'sp.authType'; // sessionStorage display hint from this tab's one-time ticket; never an authorization source
 const RECENT_MAX = 4;
 const TOKEN_MAX_LEN = 64;        // protocol limit for hello.token
 const CHANNEL_NAME = 'sp.identity';
@@ -811,6 +886,7 @@ export function createIdentity(deps = {}) {
   let resolving = null;  // { hashes: Set<hash>, taken: Set<hash> } while init() waits for claims
   let owned = sget(session, K_TOKEN);
   if (!isToken(owned)) owned = null;
+  let authType = ['account', 'guest'].includes(sget(session, K_AUTH_TYPE)) ? sget(session, K_AUTH_TYPE) : null;
   let welcomeAt = null;
   try {
     const saved = JSON.parse(sget(session, K_WELCOME) || 'null');
@@ -1015,6 +1091,13 @@ export function createIdentity(deps = {}) {
       sdel(session, K_WELCOME);
       if (t) writeRecent(readRecent().filter((x) => x !== t));
     },
+    /** Display-only identity hint from the one-time ticket used in this tab. */
+    getAuthType: () => authType,
+    setAuthType(type) {
+      authType = ['account', 'guest'].includes(type) ? type : null;
+      if (authType) sset(session, K_AUTH_TYPE, authType);
+      else sdel(session, K_AUTH_TYPE);
+    },
     /** Whether this tab already passed the title screen (survives reloads, not new tabs). */
     wasEntered: () => sget(session, K_ENTERED) === '1',
     /** @param {boolean} on */
@@ -1024,6 +1107,14 @@ export function createIdentity(deps = {}) {
 
 /** Browser identity singleton (main.js awaits `identity.init()` before connecting). */
 export const identity = createIdentity({ onYield: () => net.reconnectNow(net.helloName || net.name) });
+
+if (initialAuth.authTicket || initialAuth.shareCode) {
+  identity.clearToken();
+  identity.setEntered(false);
+  identity.setAuthType(initialAuth.authTicket ? 'account' : null);
+}
+
+export function hasPendingAuthTicket() { return !!pendingAuthTicket; }
 
 /** Compatibility helper for older clients/tools; the browser singleton now reviews through WS hello only. */
 export async function checkNameBeforeHello(name, signal, fetchFn = globalThis.fetch) {

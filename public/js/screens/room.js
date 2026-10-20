@@ -30,7 +30,7 @@ import { SettingsButton } from '../ui/settings.js';
 import { LoadoutButton } from './loadout.js';
 import { PluginTag, isModdedRoom } from '../ui/pluginTag.js';
 import { hasScriptConsent, rememberScriptConsent } from '../content.js';
-import { net } from '../net.js';
+import { net, identity } from '../net.js';
 import { store, useStore, shallowEqual, emptyMatch, isSpectating } from '../store.js';
 import { difficultyInfo } from './lobby.js';
 import { data, useData } from '../data.js';
@@ -120,6 +120,48 @@ export function inviteLink(code) {
   const loc = globalThis.location;
   const base = loc ? `${loc.origin}${loc.pathname}` : '';
   return `${base}?room=${encodeURIComponent(code)}`;
+}
+
+function matchInviteLink(code) {
+  const loc = globalThis.location;
+  const base = loc ? `${loc.origin}${loc.pathname}` : '';
+  return `${base}#shareCode=${encodeURIComponent(code)}`;
+}
+
+function SingleMatchInvite({ room }) {
+  const [code, setCode] = useState('');
+  const [busy, setBusy] = useState(false);
+  const creating = useRef(false);
+  useEffect(() => { if (!room.inviteAvailable) setCode(''); }, [room.inviteAvailable]);
+  const makeInvite = async () => {
+    if (creating.current) return;
+    creating.current = true;
+    setBusy(true);
+    let secret = '';
+    const off = net.on('room.invite', (msg) => { if (typeof msg?.code === 'string') secret = msg.code; });
+    try {
+      await net.request('room.invite.create', {});
+      if (!secret) throw new Error('invite response missing');
+      setCode(secret);
+    } catch { toast(t('单局分享码创建失败，请登录后重试。'), 'warn'); }
+    finally { off(); creating.current = false; setBusy(false); }
+  };
+  const copy = async (link) => {
+    const ok = await copyText(link ? matchInviteLink(code) : code);
+    toast(ok ? t(link ? '已复制单局邀请链接' : '已复制单局分享码') : t('复制失败，请手动复制'), ok ? 'success' : 'warn');
+  };
+  if (room.inMatch || room.matching) return null;
+  return html`<div class="match-invite brackets">
+    <div class="match-invite__label">${t('单局访客分享')}</div>
+    <p>${t('四位同盟密钥只用于定位房间；单局分享码才允许访客加入下一局。')}</p>
+    <${Button} variant="secondary" size="sm" icon="key" loading=${busy} onClick=${makeInvite}>
+      ${room.inviteAvailable ? t('轮换单局分享码') : t('创建单局分享码')}<//>
+    ${code ? html`<div class="match-invite__code selectable">${code}</div>
+      <div class="match-invite__actions">
+        <${Button} size="sm" icon="copy" onClick=${() => copy(false)}>${t('复制分享码')}<//>
+        <${Button} size="sm" icon="link" onClick=${() => copy(true)}>${t('复制单局链接')}<//>
+      </div>` : null}
+  </div>`;
 }
 
 /**
@@ -423,7 +465,8 @@ export function RoomScreen() {
         <${PluginTag} room=${room} myId=${me.playerId} />
       </div>
       <div class="topbar__right">
-        ${coop ? html`<${InviteBox} code=${room.code} name=${me.name} difficulty=${room.difficulty} />` : html`<div class="solo-note"><${MicroLabel}>SINGLE OPERATOR<//><span>${t('仅限 1 名博士')}</span></div>`}
+        ${coop ? html`<div class="room-invite-stack"><${InviteBox} code=${room.code} name=${me.name} difficulty=${room.difficulty} />
+          ${identity.getAuthType() === 'account' && facts.mine && !facts.spectating ? html`<${SingleMatchInvite} room=${room} />` : null}</div>` : html`<div class="solo-note"><${MicroLabel}>SINGLE OPERATOR<//><span>${t('仅限 1 名博士')}</span></div>`}
       </div>
     </header>
 

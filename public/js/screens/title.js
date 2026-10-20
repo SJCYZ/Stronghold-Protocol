@@ -25,7 +25,7 @@ import { AnnouncementButton } from '../ui/announcement.js';
 import { GuideButton } from '../ui/guide.js';
 import { openStats } from './stats.js';
 import { toast } from '../ui/toasts.js';
-import { net, identity } from '../net.js';
+import { net, identity, redeemGuestShareCode, takeInitialShareCode, hasPendingAuthTicket } from '../net.js';
 import { store, useStore, shallowEqual } from '../store.js';
 import { data, useData } from '../data.js';
 import { FullscreenButton, PwaInstallButton, detectFeatures } from '../ui/device.js';
@@ -59,7 +59,7 @@ export function enterSession(rawName) {
 
 /** Name rejection or server capacity refusal returns to the title without abandoning the saved identity. */
 export function returnToTitleAfterNameReview(error, connection = net, sessionIdentity = identity, state = store) {
-  if (!['NAME_REJECTED', 'SERVER_FULL'].includes(error?.code)
+  if (!['NAME_REJECTED', 'SERVER_FULL', 'AUTH_TICKET_INVALID'].includes(error?.code)
     && !(error?.code === 'BAD_MSG' && connection.status !== 'online')) return false;
   sessionIdentity.setEntered(false);
   state.patch('session', { entered: false });
@@ -183,6 +183,10 @@ export function TitleScreen() {
   }, [currentName]);
   const [aboutOpen, setAboutOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [shareCode, setShareCode] = useState('');
+  const [sharePending, setSharePending] = useState(false);
+  const [authReady, setAuthReady] = useState(() => !!identity.getAuthType() || hasPendingAuthTicket());
+  const [authHint, setAuthHint] = useState('');
   // the list of the server's plugins once loaded (ui/pluginPanel.js — a component in state: set through an updater)
   const [Installed, setInstalled] = useState(null);
   const openPlugins = () => {
@@ -205,9 +209,29 @@ export function TitleScreen() {
 
   const valid = isValidName(name);
   const serverFull = conn.lastError?.code === 'SERVER_FULL';
+  const submitShareCode = async (value) => {
+    const code = String(value || '').trim();
+    if (!code || sharePending) return;
+    setShareCode('');
+    setSharePending(true);
+    setAuthHint('');
+    try {
+      await redeemGuestShareCode(code);
+      setAuthReady(true);
+      setAuthHint(t('分享码已验证，请输入博士代号后开始本局。'));
+    } catch {
+      setAuthReady(false);
+      setAuthHint(t('分享码已过期或不可用，请登录或向创建者获取新的单局分享码。'));
+    } finally { setSharePending(false); }
+  };
+  useEffect(() => {
+    const code = takeInitialShareCode();
+    if (code) submitShareCode(code);
+  }, []);
   const start = () => {
     if (serverFull) return;
     if (!valid) { toast(t('请输入博士代号'), 'warn'); return; }
+    if (!authReady) { toast(t('请先登录或使用有效的单局分享码'), 'warn'); return; }
     enterSession(name);
   };
 
@@ -269,7 +293,15 @@ export function TitleScreen() {
         <${TextField} label=${t('博士代号')} micro="CALLSIGN" size="lg" icon="user" value=${name} maxLength=${NAME_MAX_LEN}
           placeholder=${t('输入你的代号（最多 {NAME_MAX_LEN} 字）', { NAME_MAX_LEN })} autoFocus=${!touchUi}
           onInput=${setName} onEnter=${start} />
-        <${Button} variant="primary" size="xl" block=${true} iconRight="chevrons" disabled=${!valid || serverFull} onClick=${start}>${t('开始')}<//>
+        <${Button} variant="primary" size="xl" block=${true} iconRight="chevrons" disabled=${!valid || !authReady || sharePending || serverFull} onClick=${start}>${t('开始')}<//>
+        <${Button} variant="secondary" size="lg" block=${true} icon="user" onClick=${() => { location.assign('/auth/wgs/start'); }}>${t('使用 Web Gerber 账号登录')}<//>
+        <div class="title-share-entry">
+          <${TextField} label=${t('单局分享码（访客）')} size="md" icon="key" value=${shareCode} maxLength=${128}
+            placeholder=${t('粘贴创建者提供的单局分享码')} onInput=${setShareCode} onEnter=${() => submitShareCode(shareCode)} />
+          <${Button} variant="secondary" size="md" block=${true} loading=${sharePending} disabled=${!shareCode.trim() || sharePending}
+            onClick=${() => submitShareCode(shareCode)}>${t('验证单局分享码')}<//>
+        </div>
+        ${authHint ? html`<p class="title-auth-hint" role="status">${authHint}</p>` : null}
         <div class="title-conn">
           <span class=${`status-dot ${dotClass}`}></span>
           <span role=${serverFull ? 'alert' : undefined}>${serverFull ? t('当前服务器容量已满') : STATUS_TEXT[conn.status] ? t(STATUS_TEXT[conn.status]) : conn.status}</span>
