@@ -298,6 +298,8 @@ export class Match {
     this.vs = isContentHash(opts.vs) ? opts.vs : null;
     /** a room with gameplay plugins (opts.requireCs): a client result must name this match's cs (reports.js) */
     this.requireCs = opts.requireCs === true && !!this.cs;
+    /** the selected room script plugin that unlocks the host's native manual speed control */
+    this.hostSpeedEnabled = opts.hostSpeedEnabled === true;
     this.gd = new GameData(this.data, this.modeId);
     if (!this.difficulty) this.difficulty = this.gd.difficulty;
     this.isSolo = this.mode === 'solo' || this.gd.isSolo;

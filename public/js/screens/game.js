@@ -79,7 +79,7 @@ import { PHASE, GEO } from '../../../shared/constants.js';
 import { html, Spinner, ResultDialog, Icon, Button, confirmDialog, closeAllDialogs, useTicker } from '../ui/components.js';
 import { useGameData, GIcon } from '../ui/gameComponents.js';
 import { useFieldView } from '../ui/fieldHost.js';
-import { TopBar, liveLp, ownLeaks, uniteRemaining, tempInfo, tempReadyReason, isActiveCombatSpeedField } from '../ui/hud.js';
+import { TopBar, liveLp, ownLeaks, uniteRemaining, tempInfo, tempReadyReason, isActiveCombatSpeedField, hasCombatSpeedPlugin } from '../ui/hud.js';
 import { BondStrip, BondPopup } from '../ui/bondStrip.js';
 import { TeamPanel } from '../ui/teamPanel.js';
 import { ShopBar } from '../ui/shopBar.js';
@@ -221,6 +221,7 @@ function MatchScreen() {
   const roomSolo = useStore((s) => s.room?.mode === 'solo');
   const spectator = useStore((s) => isSpectating(s.room, s.me.playerId));
   const roomConsole = useStore((s) => !!s.room?.consoleEnabled);
+  const speedPluginEnabled = useStore((s) => hasCombatSpeedPlugin(s.room));
   // gameplay plugins (DESIGN §32.6): the HUD corner's MOD mark — re-rendered only when the room's content changes
   const modRoom = useStore((s) => (s.room?.content?.vanilla === false ? s.room : null), (a, b) => (a?.content ?? null) === (b?.content ?? null));
   // the room's spectator seats for the top bar's 观战席 capsule (ui/hud.js SpectatorPill; GitHub #120): room.state keeps coming
@@ -1641,7 +1642,7 @@ function MatchScreen() {
         readyBusy=${readyBusy} readyCount=${readyCount} playerCount=${solo ? 1 : aliveCount}
         pen=${pen} penAvail=${penAvail} onPen=${togglePen} config=${gd.config} frozenAt=${frozenAt}
         pause=${canPause || paused ? { show: canPause, paused, busy: pauseBusy, onToggle: () => togglePause(!paused) } : null}
-        speed=${field?.speed ?? battleState?.speed ?? 2} speedActive=${isActiveCombatSpeedField(field, battleState)} speedPaused=${paused} onSpeed=${actions.speed}
+        speed=${field?.speed ?? battleState?.speed ?? 2} speedEnabled=${speedPluginEnabled} speedActive=${isActiveCombatSpeedField(field, battleState)} speedPaused=${paused} onSpeed=${actions.speed}
         live=${liveLpNow} spectator=${spectator}
         spectators=${specFacts.list} myId=${myId} isHost=${specFacts.isHost} onRemoveSpectator=${removeSpectator} room=${modRoom} />
 

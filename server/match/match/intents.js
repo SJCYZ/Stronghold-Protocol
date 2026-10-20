@@ -97,6 +97,7 @@ export class MatchIntents {
     const clock = this._combatClock;
     const step = typeof speed === 'number' ? Math.round(speed * 10) : NaN;
     if (!ps || ps.isBot || ps.left || ps.playerId !== this.hostId) return fail(ERR.NOT_IN_ROOM);
+    if (!this.hostSpeedEnabled) return fail(ERR.PLUGIN_BLOCKED);
     if (typeof speed !== 'number' || !Number.isFinite(speed) || speed < 0.1 || speed > 4
       || Math.abs(speed * 10 - step) > 1e-8) return fail(ERR.BAD_MSG);
     if (!clock?.phase || clock.phase !== this.phase || this.paused || clock.paused || clock.frozen

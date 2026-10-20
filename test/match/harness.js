@@ -91,6 +91,7 @@ export function makeMatch(o = {}) {
     cs: o.cs,
     vs: o.vs,
     requireCs: o.requireCs,
+    hostSpeedEnabled: o.hostSpeedEnabled,
   });
   const m = h.m;
   if (m.clientCombat && o.clients !== false) {

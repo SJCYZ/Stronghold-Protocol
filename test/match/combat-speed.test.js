@@ -14,8 +14,8 @@ test('g.speed protocol accepts the supported range and rejects invalid steps', (
   }
 });
 
-function activeSolo() {
-  const h = makeMatch({ mode: 'solo', humans: 1, hostId: 'p_0', fake: true, clientCombat: true, clients: false });
+function activeSolo({ hostSpeedEnabled = false } = {}) {
+  const h = makeMatch({ mode: 'solo', humans: 1, hostId: 'p_0', fake: true, clientCombat: true, clients: false, hostSpeedEnabled });
   h.start().toPrep(1);
   h.m.handle('p_0', { t: 'g.ready', ready: true });
   h.run(() => h.m.phase === PHASE.COMBAT);
@@ -24,7 +24,7 @@ function activeSolo() {
 }
 
 test('only the current human host can change active combat speed and it broadcasts the applied clock speed', () => {
-  const h = activeSolo();
+  const h = activeSolo({ hostSpeedEnabled: true });
   const host = h.ps('p_0');
   const result = h.m.handle('p_0', speedMessage(2.7));
   assert.deepEqual(result, { ok: true });
@@ -49,7 +49,7 @@ test('only the current human host can change active combat speed and it broadcas
 });
 
 test('a new Match starts at the default speed after the previous Match was adjusted', () => {
-  const previous = activeSolo();
+  const previous = activeSolo({ hostSpeedEnabled: true });
   assert.deepEqual(previous.m.handle('p_0', speedMessage(4.0)), { ok: true });
   previous.m.dispose();
 
@@ -60,7 +60,7 @@ test('a new Match starts at the default speed after the previous Match was adjus
 });
 
 test('a former host cannot change speed after host migration', () => {
-  const h = makeMatch({ mode: 'coop', humans: 2, hostId: 'p_0', fake: true, clientCombat: true, clients: false });
+  const h = makeMatch({ mode: 'coop', humans: 2, hostId: 'p_0', fake: true, clientCombat: true, clients: false, hostSpeedEnabled: true });
   h.start().toPrep(1);
   h.m.handle('p_0', { t: 'g.ready', ready: true });
   h.m.handle('p_1', { t: 'g.ready', ready: true });
@@ -77,17 +77,30 @@ test('a former host cannot change speed after host migration', () => {
 });
 
 test('speed intent is rejected during preparation and while combat is paused', () => {
-  const prep = makeMatch({ mode: 'solo', humans: 1, hostId: 'p_0', fake: true });
+  const prep = makeMatch({ mode: 'solo', humans: 1, hostId: 'p_0', fake: true, hostSpeedEnabled: true });
   prep.start().toPrep(1);
   assert.equal(prep.m.handle('p_0', speedMessage(2.5)).error, 'WRONG_PHASE');
   assert.equal(prep.m.defaultGameSpeed, 2);
   prep.m.dispose();
 
-  const h = activeSolo();
+  const h = activeSolo({ hostSpeedEnabled: true });
   assert.deepEqual(h.m.handle('p_0', { t: 'g.pause', on: true }), { ok: true });
   const before = h.m.gameSpeed;
   assert.equal(h.m.handle('p_0', speedMessage(2.5)).error, 'WRONG_PHASE');
   assert.equal(h.m.gameSpeed, before);
   assert.equal(h.m.defaultGameSpeed, before);
   h.m.dispose();
+});
+
+test('host combat speed is unavailable unless the room selected the combat-speed plugin', () => {
+  const h = activeSolo();
+  assert.equal(h.m.hostSpeedEnabled, false);
+  assert.equal(h.m.handle('p_0', speedMessage(2.5)).error, 'PLUGIN_BLOCKED');
+  assert.equal(h.m.defaultGameSpeed, 2);
+  h.m.dispose();
+
+  const enabled = activeSolo({ hostSpeedEnabled: true });
+  assert.equal(enabled.m.hostSpeedEnabled, true);
+  assert.deepEqual(enabled.m.handle('p_0', speedMessage(2.5)), { ok: true });
+  enabled.m.dispose();
 });

@@ -1,0 +1,25 @@
+{
+  "lock": 1,
+  "id": "combat-speed",
+  "version": "1.0.0",
+  "generator": "tools/plugin.mjs pack",
+  "files": {
+    "README.md": {
+      "sha256": "32a4404c4317119c042f58493fd38533ab6f4068aba11de8b21cbd29d2efcbf3",
+      "bytes": 634
+    },
+    "plugin.json": {
+      "sha256": "47130d6860a660e5d4744033e051fee480c3ac8ab36530b72e59ce24d026e183",
+      "bytes": 579
+    },
+    "sim/index.js": {
+      "sha256": "1d523024fdc6ec5763fbe1aa72c6cc75a8bdb3a8f2171d829ef811fe5aae2ff4",
+      "bytes": 186
+    },
+    "test/manual-control.test.js": {
+      "sha256": "a8ea6045068a865c1eaa9048de0429f17b1b17eb4291cb2da5240d3b0ab99706",
+      "bytes": 688
+    }
+  },
+  "spine": {}
+}

@@ -204,6 +204,7 @@ const matchAnswer = (res) => (res && typeof res === 'object' && res.error
   ? fail(isErrCode(res.error) ? res.error : ERR.INTERNAL, typeof res.detail === 'string' ? res.detail : undefined)
   : OK);
 const noopLog = { info() {}, warn() {}, error() {}, debug() {} };
+const hostSpeedEnabled = (room) => room?.content?.plugins?.some((p) => p?.id === 'combat-speed' && p.class === 'script') === true;
 
 /**
  * @typedef {{ seat: number, playerId: string, name: string, isBot: boolean, ready: boolean,
@@ -2026,7 +2027,7 @@ export class Lobby {
       const match = await this.matchWorkerPool.create(room.code, {
         roomCode: room.code, mode: room.mode, difficulty: room.difficulty, modeId: modeIdFor(room.mode, room.difficulty),
         seats, spectators: room.spectators.map((s) => s.playerId), consoleEnabled: !!room.consoleEnabled,
-        hostId: room.hostId, ...(room.content ? { cs: room.content.cs } : {}),
+        hostId: room.hostId, hostSpeedEnabled: hostSpeedEnabled(room), ...(room.content ? { cs: room.content.cs } : {}),
         seed, matchNo, aiPicksLast: !!room.aiPicksLast,
       }, {
         created: (match) => {
@@ -2112,6 +2113,7 @@ export class Lobby {
         ...(room.content ? { cs: room.content.cs } : {}),
         ...(room.content?.vs ? { vs: room.content.vs } : {}),
         ...(modded ? { requireCs: true } : {}),
+        hostSpeedEnabled: hostSpeedEnabled(room),
         workerPool: modded ? null : this.workerPoolFor(room.code),
         log: this.log,
         now: this.now,

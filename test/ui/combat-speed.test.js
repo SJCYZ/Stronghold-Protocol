@@ -24,6 +24,17 @@ test('a COMBAT phase without a matching live field is inactive for speed changes
   assert.match(await read('../../public/js/screens/game.js'), /speedActive=\$\{isActiveCombatSpeedField\(field, battleState\)\}/);
 });
 
+test('the room-selected combat-speed plugin gates the native HUD slider', async () => {
+  const { hasCombatSpeedPlugin } = await import('../../public/js/ui/hud.js');
+  assert.equal(hasCombatSpeedPlugin(null), false);
+  assert.equal(hasCombatSpeedPlugin({ content: { plugins: [] } }), false);
+  assert.equal(hasCombatSpeedPlugin({ content: { plugins: [{ id: 'other-plugin' }] } }), false);
+  assert.equal(hasCombatSpeedPlugin({ content: { plugins: [{ id: 'combat-speed', class: 'cosmetic' }] } }), false);
+  assert.equal(hasCombatSpeedPlugin({ content: { plugins: [{ id: 'combat-speed', class: 'script' }] } }), true);
+  assert.match(await read('../../public/js/screens/game.js'), /speedEnabled=\$\{speedPluginEnabled\}/);
+  assert.match(await read('../../public/js/ui/hud.js'), /\$\{speedEnabled && isCombatPhase\(phase\)[\s\S]*?<\$\{CombatSpeedControl\}/);
+});
+
 describe('combat speed control mounted in headless Chrome', { skip: !BROWSER_TESTS && 'set SP_E2E=1 and have Chrome to run' }, () => {
   let server;
   let browser;
@@ -142,4 +153,9 @@ test('the narrow top bar constrains its speed control to the right viewport colu
   assert.match(mobile, /\.gtop__right \{ max-width: 25vw; \}/);
   assert.match(mobile, /\.combat-speed \{ width: min\(1\.2rem, 25vw\)/);
   assert.match(css, /\.combat-speed \{[^}]*min-width: 0/);
+});
+
+test('combat speed slider track is slightly larger', async () => {
+  const css = await read('../../public/css/screens/game.css');
+  assert.match(css, /\.combat-speed input \{[^}]*height: \.2rem;/);
 });
