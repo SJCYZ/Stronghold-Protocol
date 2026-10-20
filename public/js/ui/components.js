@@ -451,13 +451,13 @@ export function useModalFocus(open, onClose, boxRef) {
 /**
  * Modal dialog (declarative). Esc / backdrop click call onClose.
  * @param {{ open: boolean, title?: any, micro?: string, tone?: string, onClose?: Function, actions?: any,
- *   width?: string, closeOnBackdrop?: boolean, utility?: boolean, class?: string, children?: any }} props
+ *   width?: string, closeOnBackdrop?: boolean, utility?: boolean, class?: string, veilClass?: string, children?: any }} props
  */
-export function Modal({ open, title, micro, tone = 'mint', onClose, actions, width, closeOnBackdrop = true, utility = false, class: cls, children }) {
+export function Modal({ open, title, micro, tone = 'mint', onClose, actions, width, closeOnBackdrop = true, utility = false, class: cls, veilClass, children }) {
   const boxRef = useRef(null);
   useModalFocus(open, onClose, boxRef);
   if (!open) return null;
-  return html`<div class=${cx('modal', utility && 'modal--utility')} role="presentation"
+  return html`<div class=${cx('modal', utility && 'modal--utility', veilClass)} role="presentation"
       onMouseDown=${(e) => { if (closeOnBackdrop && e.target === e.currentTarget && onClose) onClose(); }}>
     <div ref=${boxRef} class=${cx('modal__box', 'brackets', `modal__box--${tone}`, utility && 'utility-modal', cls)} role="dialog" aria-modal="true" tabindex="-1"
          style=${width ? utility ? `--utility-width:${managementLength(width)}` : `width:${width}` : undefined}>

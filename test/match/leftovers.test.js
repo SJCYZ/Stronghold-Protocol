@@ -266,9 +266,10 @@ test('solo pause with server-run combat (SP_COMBAT=server): the FieldRunner does
   assert.ok(h.drive(() => m.phase === PHASE.COMBAT));
   h.sched.advance(1000);
   const b = m.fields[0].battle;
-  const t = b.time;
-  assert.ok(t > 1.5, `running (${t})`);
+  const beforePause = b.time;
+  assert.ok(beforePause > 1.5, `running (${beforePause})`);
   assert.deepEqual(m.handle('p_0', { t: 'g.pause', on: true }), { ok: true });
+  const t = b.time;
   h.sched.advance(30000);
   assert.equal(b.time, t);
   assert.equal(m.phase, PHASE.COMBAT);

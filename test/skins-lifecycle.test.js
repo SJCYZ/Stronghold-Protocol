@@ -168,24 +168,24 @@ describe('skins lifecycle: PlayerState and Match', () => {
 
     // Check pieceView for both pieces during prep
     const viewBase = ps.pieceView(pBase, [0, 0]);
-    assert.equal(viewBase.skin, SKIN_ID, 'base pieceView should carry skin');
+    assert.equal(viewBase.localSkin, SKIN_ID, 'base pieceView should carry the local chess skin');
 
     const viewGolden = ps.pieceView(pGolden, [0, 1]);
-    assert.equal(viewGolden.skin, SKIN_ID, 'golden pieceView should carry skin');
+    assert.equal(viewGolden.localSkin, SKIN_ID, 'golden pieceView should carry the local chess skin');
 
     // Check scouting prepFieldMeta
     const meta = h.m.prepFieldMeta(ps);
     const metaBase = meta.units.find((u) => u.defId === INSIDE);
     const metaGolden = meta.units.find((u) => u.defId === INSIDE_GOLDEN);
-    assert.equal(metaBase?.skin, SKIN_ID, 'scouting prepFieldMeta base piece should carry skin');
-    assert.equal(metaGolden?.skin, SKIN_ID, 'scouting prepFieldMeta golden piece should carry skin');
+    assert.equal(metaBase?.localSkin, SKIN_ID, 'scouting prepFieldMeta base piece should carry the local chess skin');
+    assert.equal(metaGolden?.localSkin, SKIN_ID, 'scouting prepFieldMeta golden piece should carry the local chess skin');
 
     // Check battleInput
     const bInput = ps.battleInput({ side: 'ally' });
     const bBase = bInput.units.find((u) => u.chessId === INSIDE);
     const bGolden = bInput.units.find((u) => u.chessId === INSIDE_GOLDEN);
-    assert.equal(bBase?.skin, SKIN_ID, 'base unit in battleInput must have skin');
-    assert.equal(bGolden?.skin, SKIN_ID, 'golden unit in battleInput must have skin');
+    assert.equal(bBase?.localSkin, SKIN_ID, 'base unit in battleInput must have the local chess skin');
+    assert.equal(bGolden?.localSkin, SKIN_ID, 'golden unit in battleInput must have the local chess skin');
 
     // Simulate Battle ally creation on a valid field row (row 9 for normal field)
     const b = new Battle({
@@ -194,8 +194,8 @@ describe('skins lifecycle: PlayerState and Match', () => {
       players: [{
         playerId: 'p_0',
         units: [
-          { kind: 'chess', chessId: INSIDE, row: 9, col: 0, skin: bBase.skin },
-          { kind: 'chess', chessId: INSIDE_GOLDEN, row: 9, col: 1, skin: bGolden.skin },
+          { kind: 'chess', chessId: INSIDE, row: 9, col: 0, localSkin: bBase.localSkin },
+          { kind: 'chess', chessId: INSIDE_GOLDEN, row: 9, col: 1, localSkin: bGolden.localSkin },
         ],
       }],
       spawns: [],
@@ -206,8 +206,8 @@ describe('skins lifecycle: PlayerState and Match', () => {
     const battleUnits = b.fieldMeta().units;
     const buBase = battleUnits.find((u) => u.defId === INSIDE);
     const buGolden = battleUnits.find((u) => u.defId === INSIDE_GOLDEN);
-    assert.equal(buBase?.skin, SKIN_ID, 'sim unit for base piece must have skin in fieldMeta');
-    assert.equal(buGolden?.skin, SKIN_ID, 'sim unit for golden piece must have skin in fieldMeta');
+    assert.equal(buBase?.localSkin, SKIN_ID, 'sim unit for base piece must have the local chess skin in fieldMeta');
+    assert.equal(buGolden?.localSkin, SKIN_ID, 'sim unit for golden piece must have the local chess skin in fieldMeta');
   });
 
   test('mid-match setSkins updates PlayerState and marks dirty', () => {

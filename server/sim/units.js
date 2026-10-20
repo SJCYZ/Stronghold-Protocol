@@ -41,6 +41,8 @@ export class Unit {
     // 干员皮肤 (docs/SKINS.md): the owning player's chosen skinId, carried from PlayerBattleInput.skin through
     // _makeAlly; snapshot's unitInfo puts it on the wire so every client draws that player's model. null = default.
     this.skin = init.skin ?? null;
+    this.localSkin = init.localSkin ?? null;
+    this.localSkinKey = init.localSkinKey ?? null;
     this.ownerUnit = init.ownerUnit ?? null; // summoner (tokens)
     this.x = init.x ?? 0;
     this.y = init.y ?? 0;

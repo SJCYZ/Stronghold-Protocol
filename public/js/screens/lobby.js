@@ -18,10 +18,11 @@ import { ProtocolScene } from '../ui/protocolScene.js';
 // Texts go through t() (docs/I18N.md); the module-level tables hold msgids (N_) translated where they are shown, the
 // config.json mode texts come localized from data.js.
 
+import { TestMark } from '../ui/testConsole.js';
 import { ResumeMatchButton } from '../ui/resumeMatch.js';
 import { useEffect, useLayoutEffect, useRef, useState } from '../../vendor/hooks.module.js';
 import { DIFFICULTIES, DIFFICULTY_NAMES, DIFFICULTY_COLORS, ROOM_CODE_LEN, MAX_SEATS, MAX_SPECTATORS, modeIdFor, ERR } from '../../../shared/constants.js';
-import { html, Button, Icon, MicroLabel, TextField, PingPill, OnlineCount, AvatarFrame, Tooltip, Spinner, DifficultyIcon, Modal, doctorNo } from '../ui/components.js';
+import { html, confirmDialog, Button, Icon, MicroLabel, TextField, PingPill, OnlineCount, AvatarFrame, Tooltip, Spinner, DifficultyIcon, Modal, doctorNo } from '../ui/components.js';
 import { AnnouncementButton } from '../ui/announcement.js';
 import { toast, toastError } from '../ui/toasts.js';
 import { GuideButton } from '../ui/guide.js';
@@ -34,6 +35,7 @@ import { net, identity } from '../net.js';
 import { store, useStore, shallowEqual, loadPref, savePref } from '../store.js';
 import { data, getConfig, getMode, getStage, useData } from '../data.js';
 import { t, tc, N_ } from '../../../shared/i18n.js';
+import { NoticesButton } from '../ui/notices.js';
 
 /** Official mode texts (activity_table act2autochess.modeDataDict), fallback when config.json is absent. */
 export const MODE_TEXT = {
@@ -179,9 +181,24 @@ export function recentRooms() {
 }
 
 /** @param {string} code */
-export function rememberRoom(code) {
+export function rememberRoom(code, test = false) {
   if (!CODE_RE.test(code)) return;
-  savePref('recentRooms', [code, ...recentRooms().filter((c) => c !== code)].slice(0, 4));
+  const recent = [code, ...recentRooms().filter((c) => c !== code)].slice(0, 4);
+  const marks = loadPref('recentTestRooms', []);
+  savePref('recentTestRooms', recent.filter(c => c === code ? test : Array.isArray(marks) && marks.includes(c)));
+  savePref('recentRooms', recent);
+}
+
+export async function joinKnown(type, key) {
+  try { return await net.request(type, { code: key }); } catch (err) {
+    if (err?.code !== ERR.TEST_CONFIRM) throw err;
+    const text = type === 'room.spectate'
+      ? t('这是测试房间，不计入任何记录。确认观战？')
+      : t('这是测试房间，不计入任何记录。确认加入？');
+    if (await confirmDialog({ title: t('测试'), text })) {
+      return net.request(type, { code: key, testAck: true });
+    }
+  }
 }
 
 const FALLBACK_TIPS = [
@@ -318,7 +335,7 @@ function ProtocolPage(props) {
 }
 
 /** Full secondary page with the fork's visual treatment and this branch's protocol. */
-export function ProtocolSelect({ card, roomMode, difficulty, onDifficulty, capacity = 4, onCapacity, online, busy, onClose, onStart, queue, onCancel, pageRef }) {
+export function ProtocolSelect({ card, roomMode, difficulty, onDifficulty, capacity = 4, onCapacity, asTest, onAsTest, testMode, online, busy, onClose, onStart, queue, onCancel, pageRef }) {
   const info = difficultyInfo(roomMode, difficulty);
   return html`<main ref=${pageRef} class="screen protocol-screen" aria-label=${`${t(card.name)} · ${t('选择模拟协议')}`}>
     <div class="proto" style=${`--d-color:${DIFFICULTY_COLORS[difficulty]}`}>
@@ -343,6 +360,10 @@ export function ProtocolSelect({ card, roomMode, difficulty, onDifficulty, capac
                 <select aria-label=${t('同盟人数')} value=${capacity} disabled=${!online || !!busy} onChange=${(e) => onCapacity?.(Number(e.currentTarget.value))}>
                   ${Array.from({ length: 17 }, (_, i) => i + 4).map((n) => html`<option key=${n} value=${n}>${n} ${t('席')}</option>`)}
                 </select>
+              </label>` : null}
+              ${testMode && roomMode !== 'match' ? html`<label class="create-box__test" data-testid="create-test">
+                <input type="checkbox" checked=${asTest} disabled=${!online || !!busy} onChange=${(e) => onAsTest(e.target.checked)} />
+                <span>${t('测试房间')}</span><em class="t-dim">${t('不计入战绩。房间会标明「测试」，只有房主能使用测试指令。')}</em>
               </label>` : null}
               <p class="proto-hint">${!online ? t('正在连接服务器…') : roomMode === 'match' ? t('仅匹配真人 · 满四人后开始') : roomMode === 'solo' ? t('创建后即可开始模拟') : t('创建后可邀请好友或匹配队友')}</p>
               <button type="button" class="proto-start" disabled=${!online || !!busy} onClick=${onStart}>
@@ -402,8 +423,11 @@ export function LobbyScreen() {
   }, [panel, sweepModule]);
   const [code, setCode] = useState('');
   const [capacity, setCapacity] = useState(4);
+  const [asTest, setAsTest] = useState(false);
+  const testMode = useStore((s) => s.testMode === true);
   const [busy, setBusy] = useState(null);
   const [recent] = useState(recentRooms);
+  const marks = loadPref('recentTestRooms', []);
   const alive = useRef(true);
   const inFlight = useRef(false); // synchronous guard against double clicks (state updates are async)
   useEffect(() => () => { alive.current = false; }, []);
@@ -424,7 +448,7 @@ export function LobbyScreen() {
       if (alive.current) setBusy(null);
     }
   };
-  const create = () => run('create', () => net.request('room.create', { mode: roomMode, difficulty, ...(roomMode === 'coop' ? { capacity } : {}) }));
+  const create = () => run('create', () => net.request('room.create', { mode: roomMode, difficulty, ...(roomMode === 'coop' ? { capacity } : {}), ...(testMode && asTest ? { test: true } : {}) }));
   const matchmaking = () => run('match', () => net.request('match.join', { mode: 'coop', difficulty }));
   const cancelMatchmaking = () => run('cancel-match', () => net.request('match.leave', {}));
   const join = (c = code) => {
@@ -432,14 +456,14 @@ export function LobbyScreen() {
     // `undefined` — codeArg keeps an event target out of the key and falls back to the input field
     const k = codeArg(c, code);
     if (!k) { toast(t('同盟密钥为 {ROOM_CODE_LEN} 位字母或数字', { ROOM_CODE_LEN }), 'warn'); return; }
-    run('join', () => net.request('room.join', { code: k }));
+    run('join', () => joinKnown('room.join', k));
   };
   // a spectator seat: no player seat taken, nothing to do but watch (also a match already running)
   const spectate = (c = code) => {
     // same guard as join: `onClick=${spectate}` passes the click event, not a code
     const k = codeArg(c, code);
     if (!k) { toast(t('同盟密钥为 {ROOM_CODE_LEN} 位字母或数字', { ROOM_CODE_LEN }), 'warn'); return; }
-    run('spectate', () => net.request('room.spectate', { code: k }).catch((err) => {
+    run('spectate', () => joinKnown('room.spectate', k).catch((err) => {
       // Clearer than the bare ERR_TEXT: the usual cause is a code that is not the host's (a remembered one from an
       // earlier room, or another machine's) — the server can only answer "no such room".
       if (err?.code === ERR.ROOM_NOT_FOUND) {
@@ -463,7 +487,7 @@ export function LobbyScreen() {
   // Replace the lobby instead of covering an interactive lobby with a dialog/backdrop.
   if (panel === 'sweep') return sweepModule ? html`<${sweepModule.SweepReport} onClose=${() => setPanel(null)} />`
     : html`<${SweepLoadingPage} onClose=${() => setPanel(null)} />`;
-  if (panel === 'protocol') return html`<${ProtocolPage} card=${card} roomMode=${roomMode} difficulty=${difficulty} onDifficulty=${pickDifficulty} capacity=${capacity} onCapacity=${setCapacity}
+  if (panel === 'protocol') return html`<${ProtocolPage} card=${card} roomMode=${roomMode} difficulty=${difficulty} onDifficulty=${pickDifficulty} capacity=${capacity} onCapacity=${setCapacity} asTest=${asTest} onAsTest=${setAsTest} testMode=${testMode}
     online=${online} busy=${busy} onClose=${() => setPanel(null)} onStart=${roomMode === 'match' ? matchmaking : create}
     queue=${matchQueue} onCancel=${cancelMatchmaking} />`;
   return html`<div ref=${lobbyRef} class="screen lobby-screen lobby-hub" data-hub-theme=${backdropTheme(bg)}>
@@ -480,6 +504,7 @@ export function LobbyScreen() {
           <${Button} variant="secondary" size="sm" square=${true} title=${t('大厅背景')} aria-label=${t('大厅背景')}
             onClick=${() => setBgOpen(true)}><${BackdropGlyph} /><//>
           <${LobbyMusicButton} />
+          <${NoticesButton} />
           <${SettingsButton} class="lobby-settings" variant="secondary" square=${true} />
           <${GuideButton} class="lobby-guide" variant="secondary" square=${true} />
           <${PwaInstallButton} class="lobby-pwa" square=${true} />
@@ -539,7 +564,7 @@ export function LobbyScreen() {
         </div>
         <div class="join-foot">
           ${recent.length ? html`<span class="t-lo">${t('最近的同盟')}</span>
-            ${recent.map((c) => html`<button key=${c} type="button" class="code-chip num" title=${t('填入密钥（不会直接加入）')} onClick=${() => setCode(c)}>${c}</button>`)}`
+            ${recent.map((c) => html`<button key=${c} type="button" class="code-chip num" title=${t('填入密钥（不会直接加入）')} onClick=${() => setCode(c)}>${c}${Array.isArray(marks) && marks.includes(c) ? html` <${TestMark} />` : null}</button>`)}`
             : html`<span class="t-dim">${t('向同伴索取 {ROOM_CODE_LEN} 位同盟密钥，或直接打开邀请链接', { ROOM_CODE_LEN })}</span>`}
         </div>
       </div>

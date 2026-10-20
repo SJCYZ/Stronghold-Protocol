@@ -31,11 +31,6 @@ describe('a room\'s content set in the browser (P1c)', { skip: !ENABLED && 'set 
     const { startServer } = await import('../../server/index.js');
     const srv = await startServer({ port: 0, host: '127.0.0.1', quiet: process.env.SP_E2E_VERBOSE !== '1', pluginsDir: tmp,
       matchHost: { matchOptions: { timerScale: 0.1, combatSpeed: 16, botRehearsal: 0 } } });
-    for (const t0 = Date.now(); Date.now() - t0 < 20000;) {
-      const h = await fetch(`${srv.url}/healthz?traffic=1`).then((r) => r.json(), () => null);
-      if (!h?.assetHashes || h.assetHashes.ready) break;
-      await sleep(150);
-    }
     const P = (await import('puppeteer-core')).default;
     const host = new Client(P, srv.url, 'host', { prefix: 'plugins-content', w: 1600, h: 900 });
     const guest = new Client(P, srv.url, 'guest', { prefix: 'plugins-content', w: 1600, h: 900 });

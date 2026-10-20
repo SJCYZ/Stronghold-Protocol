@@ -58,6 +58,13 @@ test('gameplay portraits follow owner metadata, frozen unit skin and viewer opt-
   assert.equal(portraitSkin(elite, { ...context, ownerId: 'mate', skin }), skin, 'battle snapshot wins');
   assert.equal(portraitSkin(elite, { ...context, skin: null }), null, 'explicit default never reads local choices');
   assert.equal(portraitSkin(elite, { ...context, settings: { skinsEnabled: false } }), null);
+  const pluginContext = { ...context, settings: { skinsEnabled: false, otherSkins: true }, state: { me: { playerId: 'me' }, match: { public: { players: [
+    { playerId: 'mate', operatorSkins: { [charId]: mateSkin }, skins: { base: skin } },
+  ] } } } };
+  assert.equal(portraitSkin(elite, { ...pluginContext, ownerId: 'mate' }), mateSkin, 'plugin skins do not use the official skin toggle');
+  assert.equal(portraitSkin(elite, { ...pluginContext, ownerId: 'mate', settings: { skinsEnabled: false, otherSkins: false } }), null);
+  assert.equal(portraitSkin(elite, { ...pluginContext, ownerId: 'mate', settings: { skinsEnabled: true, otherSkins: false } }), skin,
+    'hiding a plugin skin can still show the official skin when enabled');
   for (const extra of [{ isDiy: true }, { standInFor: 'original' }]) assert.equal(portraitSkin({ ...elite, ...extra }, context), null);
 });
 
@@ -65,7 +72,7 @@ test('live portrait changes use subscribed state and a failed skin request has a
   const state = store.get(), prefs = settingsStore.get(), skins = skinsStore.get();
   t.after(() => { store.set(state); settingsStore.set(prefs); skinsStore.set(skins); });
   store.set({ me: { playerId: 'me' }, match: { public: null } });
-  skinsStore.set({ entries: { base: skin } }); settingsStore.set({ skinsEnabled: true });
+  skinsStore.set({ skins: { base: skin } }); settingsStore.set({ skinsEnabled: true, otherSkins: true });
   const view = render(OperatorPortrait, { m, chess: elite, class: 'art' });
   assert.equal(view.props.src, '/assets/summer.png');
   assert.equal(view.props.fallback.props.src, '/assets/elite.png');

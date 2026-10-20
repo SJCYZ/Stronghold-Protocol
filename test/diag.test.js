@@ -222,9 +222,9 @@ describe('the page\'s traffic (host bandwidth layer 0)', () => {
   const ORIGIN = 'http://192.168.1.5:3000';
 
   test('Resource Timing entries sum by category: bytes on the wire, a cache hit counted as cached, other sites apart', () => {
-    recordResourceEntry({ name: `${ORIGIN}/assets/~0123456789abcdef/spine/op/x/front/x.skel`, transferSize: 120000, decodedBodySize: 400000 }, ORIGIN);
+    recordResourceEntry({ name: `${ORIGIN}/assets/spine/op/x/front/x.skel`, transferSize: 120000, decodedBodySize: 400000 }, ORIGIN);
     recordResourceEntry({ name: `${ORIGIN}/assets/char/avatar/a.png`, transferSize: 0, decodedBodySize: 50000 }, ORIGIN);
-    recordResourceEntry({ name: `${ORIGIN}/media/~0123456789abcdef/bgm/m_bat`, transferSize: 2000000, decodedBodySize: 2000000 }, ORIGIN);
+    recordResourceEntry({ name: `${ORIGIN}/media/bgm/m_bat`, transferSize: 2000000, decodedBodySize: 2000000 }, ORIGIN);
     recordResourceEntry({ name: `${ORIGIN}/js/main.js`, transferSize: 9000, decodedBodySize: 30000 }, ORIGIN);
     recordResourceEntry({ name: `${ORIGIN}/data/assets.json`, transferSize: 300, decodedBodySize: 1300000 }, ORIGIN);
     recordResourceEntry({ name: 'https://fonts.gstatic.com/s/x.woff2', transferSize: 50000 }, ORIGIN);

@@ -9,7 +9,7 @@ test('two sandbox-script players start without consent and Worker battles verify
  const f=scriptFixture(t,{mode:'sandbox'});f.put('training',`export default sp => sp.content.register({install(b){b.on('battleStart',()=>{for(const u of b.allyUnits)b.addBuff(u,{key:'training',mods:{atkFlat:2}});});}});`);
  const previous=process.env.SP_PLUGIN_SCRIPTS;process.env.SP_PLUGIN_SCRIPTS='sandbox';
  t.after(()=>{if(previous===undefined)delete process.env.SP_PLUGIN_SCRIPTS;else process.env.SP_PLUGIN_SCRIPTS=previous;});
- const srv=await startServer({port:0,host:'127.0.0.1',quiet:true,pluginsDir:f.pluginsDir,assetIndex:false,matchHost:{matchOptions:{verify:'all',timerScale:0.1,combatSpeed:16,botRehearsal:0}}});
+ const srv=await startServer({port:0,host:'127.0.0.1',quiet:true,pluginsDir:f.pluginsDir,matchHost:{matchOptions:{verify:'all',timerScale:0.1,combatSpeed:16,botRehearsal:0}}});
  t.after(()=>srv.close());
  const policy=(await fetch(srv.url)).headers.get('content-security-policy');
  assert.equal(policy,null);

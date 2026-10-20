@@ -4,7 +4,7 @@ import { testLink } from '../helpers/links.js';
 // cosmetic plugins of the scope, their requirements switched on, in load order, within the size limit — refused
 // otherwise), its vs stable for the same files and new for one changed byte; GET /vs/<vs16>/overlay.json — the set's
 // composition, which a browser's check accepts, and each plugin's writes (no URL, no copy of the art manifest), which a
-// page composes on the served manifest it loaded (its /assets/~<hash>/ URLs); GET /p/<id>/<hash8>/<path> — only a file
+// page composes on the served manifest it loaded (ordinary /assets/ URLs); GET /p/<id>/<hash8>/<path> — only a file
 // an overlay names
 // (never plugin.json, the lock, a document, a dot file, a path out of the folder or a link out of it), `immutable` at
 // the hash of its bytes (its own, or its Spine model's), the current file with `no-cache` at any other — and the

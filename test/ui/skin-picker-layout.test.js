@@ -34,6 +34,12 @@ test('skin cards override the legacy column flex sizing with compact auto-fit gr
   assert.match(card.padding, /--ui-unit/);
   assert.equal(length(card['min-height'], { '--ui-unit': 100 }), 44);
   assert.equal(card.height, undefined, 'larger user text can grow naturally instead of being clipped');
+  const pluginGrid = style('.lo-skins--plugin');
+  assert.equal(pluginGrid['grid-template-columns'], 'repeat(5, minmax(0, 1fr))', 'plugin skins keep the upstream five-tile layout');
+  const pluginArt = style('.lo-skins--plugin .lo-skin__art');
+  assert.equal(pluginArt.width, '100%');
+  assert.equal(pluginArt.height, 'auto');
+  assert.equal(pluginArt['aspect-ratio'], '1 / 2');
   for (const selector of ['.lo-skin__name', '.lo-skin__group']) {
     const text = style(selector);
     assert.equal(text['line-height'], '1.2');
@@ -54,11 +60,12 @@ test('skin art and minimum height scale with the local design unit instead of re
 
 test('compact picker keeps skin names, series, selection semantics and full-label tooltips', () => {
   const source = read('public/js/ui/skinPicker.js');
-  assert.match(source, /title=\$\{\[x\.name, x\.group\]\.filter\(Boolean\)\.join\(' · '\)\}/);
-  assert.match(source, /class="lo-skin__name">\$\{x\.name\}/);
-  assert.match(source, /class="lo-skin__group">\$\{x\.group\}/);
+  assert.match(source, /const title = isDefault \? t\(/);
+  assert.match(source, /title=\$\{title\}/);
+  assert.match(source, /class="lo-skin__name">\$\{isDefault \? t\('默认'\) : row\.name\}/);
+  assert.match(source, /class="lo-skin__group">\$\{isDefault \? 'DEFAULT' : row\.group \|\| t\('时装'\)\}/);
   assert.match(source, /role="radiogroup"/);
   assert.match(source, /role="radio" aria-checked/);
-  assert.match(source, /onClick=\$\{\(\) => setSkin\(chessId, x\.id\)\}/);
-  assert.match(source, /onClick=\$\{\(\) => clearSkin\(chessId\)\}/);
+  assert.match(source, /onPick=\$\{\(\) => \(row\.own \? clearSkin\(id\) : setSkin\(id, row\.id\)\)\}/);
+  assert.match(source, /onClick=\$\{\(\) => \(chosen && !isDefault \? onPreview\(\) : onPick\(\)\)\}/);
 });

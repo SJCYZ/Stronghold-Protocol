@@ -53,7 +53,7 @@ describe('studio Forge import', () => {
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'sp-forge-studio-'));
     plugins = path.join(tmp, 'plugins');
     fs.mkdirSync(plugins);
-    srv = await startServer({ port: 0, host: '127.0.0.1', quiet: true, pluginsDir: plugins, assetIndex: false });
+    srv = await startServer({ port: 0, host: '127.0.0.1', quiet: true, pluginsDir: plugins });
     H = { 'x-sp-studio': srv.studio.key, 'content-type': 'application/json' };
   });
   after(async () => { await srv?.close(); fs.rmSync(tmp, { recursive: true, force: true }); });

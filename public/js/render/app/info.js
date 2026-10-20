@@ -57,5 +57,7 @@ export function renderInfo(u) {
     diy: u.diy && typeof u.diy === 'object' && typeof u.diy.charId === 'string'
       ? { charId: u.diy.charId, skillIndex: Number.isInteger(u.diy.skillIndex) ? u.diy.skillIndex : null, uniEquipId: typeof u.diy.uniEquipId === 'string' ? u.diy.uniEquipId : null }
       : undefined,
+    localSkin: typeof u.localSkin === 'string' && u.localSkin ? u.localSkin : null,
+    localSkinKey: typeof u.localSkinKey === 'string' && u.localSkinKey ? u.localSkinKey : undefined,
   };
 }

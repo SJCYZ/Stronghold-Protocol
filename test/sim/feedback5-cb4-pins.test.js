@@ -72,7 +72,7 @@ test('item 57: a prisoner freed in its own combat leaks and re-enters 联防 con
   const m = { isSolo: false, alivePlayers: () => [seat('p1', 1), seat('H', 0)], gd: { unite: { maxHelpers: 2 }, enemy: (k) => gd.enemy(k) } };
   const plan = planUnite(m, new Map([['p1', r], ['H', { perfect: true, leaked: [], unitsEnd: [] }]]));
   assert.deepEqual(plan.leaked.map((l) => l.enemyKey), [KEY]);
-  assert.deepEqual(Object.keys(plan.leaked[0]).sort(), ['bounty', 'enemyKey', 'lpr', 'mods', 'sourcePlayerId', 'tag'], 'nothing of its state travels');
+  assert.deepEqual(Object.keys(plan.leaked[0]).sort(), ['boss', 'bounty', 'counted', 'enemyKey', 'lpr', 'mods', 'sourcePlayerId', 'spawned', 'tag'], 'only leak identity and re-entry metadata travel');
   const wave = buildUniteWave(gd, plan.leaked, 1, 60);
   const u = makeBattle({
     kind: 'unite', stageId: 'act1autochess_escaped_single', autoFinish: false, timeLimit: 60, routes: wave.routes,

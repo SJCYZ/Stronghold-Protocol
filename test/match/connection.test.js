@@ -88,7 +88,7 @@ test('m.private shape in PREP matches DESIGN §8.3 (pieces, slots, bonds, effect
   h.flushAll();
   const p2 = h.lastTo('p_0', 'm.private');
   const piece = p2.hand.find(Boolean);
-  assert.deepEqual(Object.keys(piece).sort(), ['count', 'golden', 'id', 'items', 'kind', 'ownerUid', 'tier', 'uid']);
+  assert.deepEqual(Object.keys(piece).sort(), ['count', 'golden', 'id', 'items', 'kind', 'localSkinKey', 'ownerUid', 'tier', 'uid']);
   assert.equal(p2.funds, ps.funds);
   h.m.dispose();
 });

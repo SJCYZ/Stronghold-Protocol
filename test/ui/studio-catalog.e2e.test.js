@@ -43,7 +43,7 @@ describe('the studio catalogue page', { skip: !ENABLED && 'set SP_E2E=1 (and hav
     let browser;
     const problems = [];
     try {
-      srv = await startServer({ port: 0, host: '127.0.0.1', quiet: true, pluginsDir: plugins, assetIndex: false, fetch: fetchImpl });
+      srv = await startServer({ port: 0, host: '127.0.0.1', quiet: true, pluginsDir: plugins, fetch: fetchImpl });
       const P = (await import('puppeteer-core')).default;
       browser = await P.launch({ executablePath: CHROME, headless: true, args: ['--no-sandbox', '--no-first-run'] });
       const page = await browser.newPage();
@@ -95,7 +95,7 @@ describe('the studio catalogue page', { skip: !ENABLED && 'set SP_E2E=1 (and hav
     let browser;
     const problems = [];
     try {
-      srv = await startServer({ port: 0, host: '127.0.0.1', quiet: true, pluginsDir: plugins, assetIndex: false, fetch: fetchImpl });
+      srv = await startServer({ port: 0, host: '127.0.0.1', quiet: true, pluginsDir: plugins, fetch: fetchImpl });
       const P = (await import('puppeteer-core')).default;
       browser = await P.launch({ executablePath: CHROME, headless: true, args: ['--no-sandbox', '--no-first-run'] });
       const page = await browser.newPage();

@@ -20,9 +20,9 @@ function deepFreeze(root) {
  * (DESIGN §32.6): the files of a room's content set the page checked (public/js/content.js) instead of fetching
  * /data/; `cs` names what was loaded; `bounds` its official-bounds snapshot (installSimBounds).
  */
-let loadedScripts = false;
+let loadedScripts = false, loadedTraits = false, traitInstaller = null;
 export async function loadBrowserSim({ base = '/sim/', dataCdn = DATA_CDN, dataBase = `${dataCdn.replace(/\/+$/, '')}/data/`, fetchFn = (...a) => globalThis.fetch(...a), data = null, cs = null, bounds = null,
-  scripts = [], hashInput = null, nativeVerified = false, deferScripts = false } = {}) {
+  scripts = [], hashInput = null, nativeVerified = false, deferScripts = false, traitRuntimeVerified = null } = {}) {
   const [spec, simdata, support] = await Promise.all(base === '/sim/' ? [
     import('/sim/spec.js'), import('/sim/simdata.js'), import('/sim/content/support/index.js'),
   ] : [
@@ -51,6 +51,27 @@ export async function loadBrowserSim({ base = '/sim/', dataCdn = DATA_CDN, dataB
     const {loadScripts} = await import(new URL('scriptLoad.js',sdkUrl).href);
     await loadScripts(scripts,{hashInput,sdkUrl,extensionsUrl:base+'content/extensions.js',cs,nativeVerified});
   } else if (loadedScripts) (await import(base+'content/extensions.js')).resetExtensions();
+  if (Object.values(raw.garrisons ?? {}).some(g => g.operatorTrait) || loadedTraits) {
+    if (/^file:/i.test(base)) {
+      const nodePluginUrl = new URL(['..', '..', '..', 'server', 'plugins', 'operatorTraits.js'].join('/'), import.meta.url).href;
+      const { installServerOperatorTraits } = await import(/* @vite-ignore */ nodePluginUrl);
+      await installServerOperatorTraits(raw, base);
+    } else {
+      const expected = traitRuntimeHash(raw);
+      if (expected && traitRuntimeVerified !== expected) {
+        if (deferScripts) throw new Error('operator trait runtime was not checked by the page');
+        await checkOperatorTraitRuntime(raw, fetchFn);
+      }
+      if (!expected && traitInstaller) await traitInstaller(raw, base);
+      else {
+        const { installOperatorTraits } = await import(new URL('./operatorTraits.js?v=' + expected, import.meta.url).href);
+        if (traitInstaller && traitInstaller !== installOperatorTraits) await traitInstaller({}, base);
+        await installOperatorTraits(raw, base);
+        traitInstaller = installOperatorTraits;
+      }
+    }
+    loadedTraits = Object.values(raw.garrisons ?? {}).some(g => g.operatorTrait);
+  }
   loadedScripts = !deferScripts && scripts.length > 0;
   return { spec, ds: new simdata.DataSource(raw, null), cs, raw };
 }
@@ -73,4 +94,22 @@ async function installSimBounds(base, raw, bounds) {
   } catch { return; }
   if (bounds === undefined) boundsMod.rememberOfficialBounds(raw);
   else boundsMod.installOfficialBounds(bounds && bounds.v === 1 ? bounds : null);
+}
+
+
+function traitRuntimeHash(raw) {
+  const hashes = Object.values(raw.garrisons ?? {}).filter(g => g.operatorTrait).map(g => g.operatorTrait.runtime);
+  if (!hashes.length) return null;
+  if (hashes.some(h => typeof h !== 'string' || !/^[a-f0-9]{64}$/.test(h) || h !== hashes[0])) throw new Error('operator trait runtime pins differ');
+  return hashes[0];
+}
+/** Verify on the page; the simulation Worker's connect-src remains none. */
+export async function checkOperatorTraitRuntime(raw, fetchFn = (...args) => globalThis.fetch(...args)) {
+  const expected = traitRuntimeHash(raw);
+  if (!expected) return null;
+  const source = await fetchFn(new URL('./operatorTraits.js?v=' + expected, import.meta.url).href, { cache: 'no-cache' });
+  if (!source?.ok) throw new Error('operator trait runtime unavailable');
+  const { sha256Hex } = await import('../../../shared/sha256.js');
+  if (sha256Hex(new Uint8Array(await source.arrayBuffer())) !== expected) throw new Error('operator trait runtime hash mismatch');
+  return expected;
 }

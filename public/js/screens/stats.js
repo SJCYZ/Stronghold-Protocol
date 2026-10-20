@@ -37,7 +37,7 @@ const cx = (...p) => p.flat().filter(Boolean).join(' ');
 /** Rows of 对局记录 shown at first and added by each 显示更多. */
 export const HISTORY_PAGE = 50;
 
-const statsStore = createStore({ open: false, tab: 'overview' });
+const statsStore = createStore({ open: false, tab: 'overview', withModded: false });
 
 /** Open the stats viewer (title screen / lobby / room entry points). */
 export function openStats() {
@@ -116,11 +116,24 @@ function Section({ title, micro, children, class: cls }) {
   </section>`;
 }
 
+function ModdedSwitch({ agg }) {
+  const on = useStore((s) => s.withModded, Object.is, statsStore);
+  if (!on && !agg.modded) return null;
+  return html`<label class="st-modded">
+    <button type="button" role="switch" aria-checked=${on ? 'true' : 'false'} class=${cx('set-toggle', on && 'is-on')}
+      onClick=${() => statsStore.set({ withModded: !on })}><i></i></button>
+    <span>${t('含插件对局')}${!on ? html` <em class="t-dim">${t('（{n} 局未计入）', { n: agg.modded })}</em>` : null}</span>
+  </label>`;
+}
+
 /** 总览: cards, the per-difficulty table, the six titles, and the line about what counts. */
 function Overview({ agg, gd }) {
+  const unknownMode = Math.max(0, agg.count - agg.byMode.solo.games - agg.byMode.coop.games);
   const rows = DIFFICULTIES.filter((d) => agg.byDifficulty[d]).concat(Object.keys(agg.byDifficulty).filter((d) => !DIFFICULTIES.includes(d)));
   const titles = (Array.isArray(gd.config?.titles) ? gd.config.titles : []).map((x) => ({ ...x, count: agg.titles[x.id]?.count || 0 }));
   return html`<${Section} title=${t('总览')} micro="OVERVIEW">
+    <${ModdedSwitch} agg=${agg} />
+    ${agg.test > 0 ? html`<p class="st-rule" data-testid="stats-test-excluded">${t('测试对局不计入统计。')}</p>` : null}
     <div class="st-cards">
       <${StatCard} micro="GAMES" value=${fmtNum(agg.count)} label=${t('总局数')} />
       <${StatCard} micro="WINS" value=${fmtNum(agg.wins)} label=${t('胜场')} tone="mint" />
@@ -129,8 +142,10 @@ function Overview({ agg, gd }) {
       <${StatCard} micro="HIDDEN CLEAR" value=${fmtNum(agg.hidden.cleared)} label=${t('通关隐秘核心')} />
       <${StatCard} micro="BEST ROUND" value=${fmtNum(agg.rounds.max)} label=${t('最远回合')} />
       <${StatCard} micro="TIME PLAYED" value=${playedText(agg.duration.totalMs)} label=${t('累计时长')} />
+      <${StatCard} micro="TROPHIES" value=${fmtNum(agg.trophies)} label=${t('获得奖杯')} tone="gold" />
     </div>
     <p class="st-split"><span>${t('单人')} <b class="num">${fmtNum(agg.byMode.solo.games)}</b></span><span>${t('同盟')} <b class="num">${fmtNum(agg.byMode.coop.games)}</b></span></p>
+    ${unknownMode ? html`<p class="st-rule">${t('另有 {n} 局战绩没有记录模式，只计入总局数', { n: fmtNum(unknownMode) })}</p>` : null}
     ${rows.length ? html`<div class="st-tablewrap"><table class="st-table">
       <thead><tr><th>${t('难度')}</th><th class="num">${t('局数')}</th><th class="num">${t('胜场')}</th><th class="num">${t('胜率')}</th><th class="num">${t('隐秘核心通关')}</th></tr></thead>
       <tbody>
@@ -271,7 +286,8 @@ function StatsScreen({ tab }) {
     return () => { window.removeEventListener('keydown', onKey, true); clearTimeout(timer); };
   }, []);
 
-  const agg = useMemo(() => aggregateStats(stats.records), [stats]);
+  const withModded = useStore((s) => s.withModded, Object.is, statsStore);
+  const agg = useMemo(() => aggregateStats(stats.records, { modded: withModded }), [stats, withModded]);
   const reload = () => setStats(loadStats());
 
   const doExport = () => {

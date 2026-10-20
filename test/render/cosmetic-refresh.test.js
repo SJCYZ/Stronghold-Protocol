@@ -30,8 +30,8 @@ const SP = (dir) => ({ skel: `${dir}/a.skel`, atlas: `${dir}/a.atlas`, textures:
 /** The installation's manifest as a page loads it (0.2.6: content-hashed URLs). */
 const M = {
   chars: {
-    char_002_amiya: { avatar: '/assets/~1111111111111111/char/avatar/amiya.png', spine: { front: SP('/assets/~2222222222222222/spine/amiya') } },
-    char_010_chen: { avatar: '/assets/~3333333333333333/char/avatar/chen.png', spine: { front: SP('/assets/~4444444444444444/spine/chen') } },
+    char_002_amiya: { avatar: '/assets/char/avatar/amiya.png', spine: { front: SP('/assets/spine/amiya') } },
+    char_010_chen: { avatar: '/assets/char/avatar/chen.png', spine: { front: SP('/assets/spine/chen') } },
   },
   ui: {},
 };
@@ -147,7 +147,7 @@ describe('views already drawn follow a changed manifest (render/units.js retryAs
   });
 
   test('without plugins nothing changes for a model already shown: the local-client manifest arriving late keeps the web model (as before)', async () => {
-    const web = SP('/assets/~5555555555555555/spine/enemy/mh');
+    const web = SP('/assets/spine/enemy/mh');
     const M2 = { enemies: { enemy_1305_mhslim: { icon: '/assets/e/mh.png', spine: web, spineLocal: { group: 'spine/enemy/mh', skel: 'mh.skel', atlas: 'mh.atlas', textures: ['mh.png'], anims: { idle: 'Idle' } } } }, ui: {} };
     const LOCAL = { groups: { 'spine/enemy/mh': { 'mh.skel': { path: '/l/mh.skel' }, 'mh.atlas': { path: '/l/mh.atlas' }, 'mh.png': { path: '/l/mh.png' } } } };
     const loads = [];

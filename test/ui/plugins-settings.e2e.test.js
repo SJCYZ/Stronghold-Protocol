@@ -15,7 +15,7 @@ test('room settings form changes both clients content compositions', { skip: !en
     settings: { defense: { type: 'number', min: 0, max: 1, step: 0.1, default: 0.1, label: 'DEF' } } },
   { 'p.json': { patch: 1, ops: [['bb','base_def'],['buffs',0,'bb','base_def']].map(p => ({ op:'set', file:'bonds', id:'deputShip', path:p, value:{ $setting:'defense' } })) } });
   const { startServer } = await import('../../server/index.js');
-  const srv = await startServer({ port:0, host:'127.0.0.1', quiet:true, pluginsDir:tmp, assetIndex:false });
+  const srv = await startServer({ port:0, host:'127.0.0.1', quiet:true, pluginsDir:tmp });
   const P = (await import('puppeteer-core')).default;
   const host = new Client(P, srv.url, 'host', { prefix: 'settings', w:1600, h:1000 });
   const guest = new Client(P, srv.url, 'guest', { prefix: 'settings', w:1600, h:1000 });

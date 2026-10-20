@@ -50,7 +50,7 @@ describe('removing plugins in the studio', () => {
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'sp-studio-remove-'));
     plugins = path.join(tmp, 'plugins');
     for (const id of ['old-skin', 'pair-a', 'pair-b', 'ok-skin', 'room-skin', 'back-skin', 'stuck-skin', 'locked-skin', 'remove']) skin(path.join(plugins, id));
-    srv = await startServer({ port: 0, host: '127.0.0.1', quiet: true, pluginsDir: plugins, assetIndex: false, MatchClass: StubMatch });
+    srv = await startServer({ port: 0, host: '127.0.0.1', quiet: true, pluginsDir: plugins, MatchClass: StubMatch });
     H = { 'x-sp-studio': srv.studio.key, 'content-type': 'application/json' };
   });
   after(async () => {

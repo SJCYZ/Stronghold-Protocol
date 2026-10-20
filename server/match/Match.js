@@ -31,6 +31,10 @@
 //                    for the match; those chess fight as their stand-ins (PlayerState setNotOwned; bots own everything).
 //                    `diy` (0.2.0 自选编队, optional): the human's 自选 picks (shared/protocol.js checkDiyPicks) — fixed for
 //                    the match; the slotted operators join the human's own shop (PlayerState setDiy / initDiyStock).
+//   opts.kitted      string[] (optional)        the operators a 自选 slot may field in this room (the content set's
+//                                              list, lobby.kittedFor). Absent on a vanilla match, so setDiy keeps
+//                                              KITTED_CHARS and a normal match stays byte-identical. A modded room
+//                                              always passes it (local match, match host, test journal / replay).
 //   opts.spectators  string[] (optional)        the room's spectator seats (remake feature, community report #26;
 //                                              server/lobby.js): never players — see addSpectator below
 //   opts.hostId      string (optional)          the room's current host (server/lobby.js room.hostId): the executor a
@@ -75,7 +79,8 @@
 // setLoadout(playerId, loadout, ops?) → { ok } | { error, detail? }   (DESIGN §16; optional for the platform) a new
 //                           checked operator loadout (and its 潜能 / 练度 `ops`, 0.2.2) from room.loadout. Accepted only
 //                           during INFO_CHECK (the briefing's 干员调配 entry); afterwards the match's loadout is locked
-//                           (WRONG_PHASE).
+//                           (WRONG_PHASE). A room whose prepLoadout rule is prep also accepts one merge during PREP
+//                           while that seat has not pressed 准备 (DESIGN §34.15).
 // onLeave(playerId)         The human quit permanently (g.leave, room.leave, or the 10-minute reconnect
 //                           window expired). They will never return under this playerId in this match;
 //                           treat as quit (AI takes over / eliminated per DESIGN). No onDisconnect follows.
@@ -235,6 +240,9 @@ import { MatchUnite } from './match/unitePhase.js';
 import { MatchBoss } from './match/bossRounds.js';
 import { MatchSettle } from './match/settle.js';
 import { MatchCombatClock, MatchCombatClockMethods } from './match/combatClock.js';
+import { installTestTrace } from './testTrace.js';
+import { MatchTestCommands } from './match/testCommands.js';
+import { MatchOffers } from './match/offers.js';
 
 export { FLOW_TICKER_PRIORITY, DELAYS, BAND_TURN_SECONDS } from './match/common.js';
 
@@ -300,6 +308,13 @@ export class Match {
     this.requireCs = opts.requireCs === true && !!this.cs;
     /** the selected room script plugin that unlocks the host's native manual speed control */
     this.hostSpeedEnabled = opts.hostSpeedEnabled === true;
+    if (Array.isArray(opts.kitted)) this.diyKitted = Object.freeze(opts.kitted.filter((id) => typeof id === 'string'));
+    if (opts.rules && typeof opts.rules === 'object' && !Array.isArray(opts.rules)) this.rules = Object.freeze({ ...opts.rules });
+    this.offers = Array.isArray(opts.offers) ? opts.offers : [];
+    this.offerWin = [];
+    this._offerTimers = new Map();
+    this._offerResume = null;
+    this.offerSeq = 0;
     this.gd = new GameData(this.data, this.modeId);
     if (!this.difficulty) this.difficulty = this.gd.difficulty;
     this.isSolo = this.mode === 'solo' || this.gd.isSolo;
@@ -339,6 +354,33 @@ export class Match {
     this.botRehearsalDelegateMs = Number.isFinite(opts.botRehearsalDelegateMs) && opts.botRehearsalDelegateMs > 0 ? opts.botRehearsalDelegateMs : REHEARSAL_ANSWER_MS;
     /** the room's current host (opts.hostId; server/lobby.js room.hostId — setHost follows a migration) */
     this.hostId = typeof opts.hostId === 'string' ? opts.hostId : null;
+    /**
+     * Match test mode (DESIGN §34.8 phase 2). opts.test is only forwarded for a room created with the flag.
+     * The extra state exists only then, and public / result views omit the keys while this is false, so a
+     * normal match stays byte-identical.
+     */
+    this.test = opts.test === true;
+    if (this.test) {
+      /** phase deadlines are armed. false holds the callback (g.test timers) instead of scaling time to 0. */
+      this.testTimers = true;
+      /** successful g.test commands this match (m.result.testActions) */
+      this.testActions = 0;
+      /** @type {{ seq: number, playerId: string, cmd: string, args: object, at: number, ok: boolean, code?: string }[]} */
+      this.testLog = [];
+      /** @type {Map<string, number[]>} command → scheduler timestamps inside the rate window */
+      this._testRate = new Map();
+      this._testSeq = 0;
+      /** the phase callback held while testTimers is false */
+      this._testHeld = null;
+      /** the last callback setDeadline armed, so timers can be turned off mid-phase */
+      this._testArmed = null;
+      /** false once the input journal stops logging (the replay decoder's line cap) */
+      this.testReplayable = true;
+      /** replay: stop a sliced callback after this many steps; null while recording */
+      this._testSliceBudget = null;
+      /** steps taken by the timer callback now running (the journal's `steps`) */
+      this._testSliceCount = 0;
+    }
     /** @type {Map<string, { id: string, job: any, executor: string, timer: any }>} delegated rehearsals in flight */
     this._rehearsalTasks = new Map();
     this._rehearsalSeq = 0;
@@ -497,6 +539,7 @@ export class Match {
     this.hiddenReached = false;
     this.outcome = null;
     this._turnToken = 0;
+    if (this.test && opts.journal !== false) installTestTrace(this, opts);
   }
 
   /** The chess stock available to this player. Equipment stock remains match-wide. */
@@ -507,7 +550,7 @@ export class Match {
 }
 
 // the method modules, in this order (a name defined twice is an error, never a silent override)
-for (const part of [MatchPlatform, MatchInfra, MatchMessaging, MatchViews, MatchWatch, MatchIntents, MatchPause, MatchPhases, MatchSetupVote, MatchSpDraft, MatchPrep, MatchCombat, MatchClientCombat, MatchRehearsal, MatchReports, MatchUnite, MatchBoss, MatchCombatClockMethods, MatchSettle]) {
+for (const part of [MatchPlatform, MatchInfra, MatchMessaging, MatchViews, MatchWatch, MatchIntents, MatchPause, MatchPhases, MatchSetupVote, MatchSpDraft, MatchPrep, MatchCombat, MatchClientCombat, MatchRehearsal, MatchReports, MatchUnite, MatchBoss, MatchCombatClockMethods, MatchSettle, MatchTestCommands, MatchOffers]) {
   for (const key of Reflect.ownKeys(part.prototype)) {
     if (key === 'constructor') continue;
     if (Object.prototype.hasOwnProperty.call(Match.prototype, key)) throw new Error(`Match.${String(key)} is defined twice`);

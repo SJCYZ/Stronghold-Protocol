@@ -6,7 +6,7 @@ import { probePort } from '../tools/doctor.mjs';
 import { createRequestHandler } from '../server/http/routes.js';
 
 const COUNTERS = ['sockets', 'sessions', 'rooms', 'matches', 'roomMatches', 'standaloneMatches', 'humans', 'bots', 'spectators', 'queued'];
-const DIAGNOSTICS = ['persist', 'workers', 'memory', 'staticCache', 'usage', 'socketBuffers', 'announcements', 'websocket',
+const DIAGNOSTICS = ['persist', 'workers', 'memory', 'staticCache', 'usage', 'socketBuffers', 'announcements', 'websocket', 'assets',
   'assetsCdn', 'dataCdn', 'limits', 'tuning'];
 
 test('healthz retains metadata and all headline counters; metrics collects the detailed state on demand', async (t) => {

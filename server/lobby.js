@@ -91,6 +91,13 @@ import { cleanPlayerCard, isCardPortraitId, cardPortraitOperatorId, isCardAvatar
 //     and a change while it runs is stored for the next match (ROOM_STARTED 'stored for the next match'). Every
 //     `welcome` carries `diyKitted` (welcomeInfo): the operators a DIY slot may field, so the client's picker offers
 //     exactly what the server accepts.
+//   * 干员皮肤 (docs/SKINS.md): room.skins { skins } — `{ [charId]: skinId }`, the appearance each operator wears — is
+//     a plain map of charIds to skinIds, at most SKIN_LIMITS.entries (256 [ASSUMED]); a bad shape is BAD_MSG and does
+//     not clear the stored choice. A charId the room's content does not have is dropped (shared/protocol.js
+//     checkSkinSelection). An unknown skinId can do nothing worse than fail to resolve in the client's spineEntry.
+//     Stored on the session and the seat. Unlike
+//     the settings above there is NO phase gate: a match receives seats[].skins when it starts AND takes a later change
+//     at once (match.setSkins, any phase), because the choice is public — a teammate sees your model — and cosmetic.
 //   * Content identity (DESIGN §32, the plugin system's first step): the lobby is given the server's vanilla content
 //     (server/plugins/identity.js; none in unit tests that build a Lobby without it). Every `welcome` carries
 //     `content: { vanilla: <cs> }` — and `plugins: <n>` when this server has n > 0 unofficial plugins (every class but a
@@ -162,7 +169,7 @@ import { cleanPlayerCard, isCardPortraitId, cardPortraitOperatorId, isCardAvatar
 
 import { randomBytes, randomInt } from 'node:crypto';
 import { ERR, MAX_SEATS, MAX_ROOM_CAPACITY, DEFAULT_ROOM_CAPACITY, MAX_SPECTATORS, ROOM_CODE_LEN, DIFFICULTIES, modeIdFor } from '../shared/constants.js';
-import { checkLoadout, checkLoadoutOps, cultivationCharIds, checkNotOwned, checkDiyPicks, charPotentialChanges } from '../shared/protocol.js';
+import { checkLoadout, checkLoadoutOps, cultivationCharIds, checkNotOwned, checkDiyPicks, charPotentialChanges, checkSkinSelection, isSkinSelection, operatorCharIds } from '../shared/protocol.js';
 import { encode, isDroppable, isErrCode, sendRaw, sendSession } from './net.js';
 import { resetStateDelta } from './stateTransport.js';
 import { getData as defaultGetData, lookup } from './data.js';
@@ -175,7 +182,9 @@ import { validChatText } from '../shared/chat.js';
 
 const VANILLA_KITTED = new Set(KITTED_CHARS);
 import { isContentHash } from '../shared/plugins/identity.js';
+import { ruleOption } from '../shared/plugins/rules.js';
 import { msg, wireMessage } from '../shared/i18n.js';
+import { parseTestModeEnv, testModeGate, unrecognizedTestMode } from './testMode.js';
 
 /** Room code alphabet: uppercase letters without I and O (and no digits, so no 0/1). */
 export const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
@@ -212,6 +221,7 @@ const hostSpeedEnabled = (room) => room?.content?.plugins?.some((p) => p?.id ===
  *             card?: { charId: string, avatar: string } | null,
  *             ops?: Readonly<Record<string, { potential: number, cultivate: number }>> | null,
  *             notOwned?: readonly string[] | null, diy?: Readonly<Record<string, DiyLoadout>> | null,
+ *             skins?: Readonly<Record<string, string>> | null,
  *             content?: 'ready' | 'failed' | null, contentGen?: number, loadoutCs?: string | null, notOwnedCs?: string | null,
  *             diyCs?: string | null }} Seat
  *   content: a room with gameplay plugins — whether the player's page loaded and checked its content (header "Gameplay
@@ -303,6 +313,8 @@ export class Room {
      *   bytes?: number, dataBytes?: number, modes?: readonly object[], modeId?: string }> | null}
      */
     this.content = null;
+    /** Test room (DESIGN §34.8). Set only at create, and only when the process switch is on. Never flipped later. */
+    this.test = false;
     /** the room's queue (header "Gameplay plugins": Lobby.serial): what is still waiting or running, and its tail */
     this.queue = { pending: 0, tail: Promise.resolve() };
   }
@@ -345,6 +357,8 @@ export class Room {
         : null)),
       spectators: this.spectators.map((s) => ({ playerId: s.playerId, name: s.name, connected: s.connected, ...(this.modded ? { content: s.content || 'loading' } : {}) })),
       ...(this.content ? { content: this.content.trusted ? {...this.content, trusted:{...this.content.trusted, consent:Object.fromEntries(this.seats.filter(x => x && !x.isBot).map(x => [x.seat,x.consentCs === this.content.cs]))}} : this.content } : {}),
+      // omitted when false so a normal room.state stays identical
+      ...(this.test ? { test: true } : {}),
     };
   }
 }
@@ -363,7 +377,7 @@ export class Lobby {
    *   plugins?: { resolve: (ids: string[], opts?: { scope?: 'room' | 'personal', settings?: object, replacing?: object | null }) => any,
    *     hold?: (vs: string) => void, release?: (vs: string) => void, holdContent?: (cs: string) => void,
    *     releaseContent?: (cs: string) => void, onContentStale?: (fn: (cs: string, ids: string[]) => void) => () => void, onStale?: (fn: (vs: string, ids: string[]) => void) => () => void,
-   *     unofficial?: () => number, defaults?: () => string[], dataOf?: (cs: string) => any, kittedOf?: (cs: string) => any,
+   *     unofficial?: () => number, hasNotices?: () => boolean, defaults?: () => string[], dataOf?: (cs: string) => any, kittedOf?: (cs: string) => any,
    *     contentInUse?: () => number } | null,
    *   hosts?: { create: (cs: string, opts: object) => any, stats?: () => object } | null,
    *   options?: Partial<typeof LOBBY_DEFAULTS>,
@@ -394,7 +408,24 @@ export class Lobby {
     this.shuttingDown = false;
     this.now = now;
     this.seedFn = seedFn || (() => randomInt(2 ** 32));
+    const testModeOpt = options.testMode;
+    const testHostOpt = options.testHost;
+    if (Object.hasOwn(options, 'testMode') || Object.hasOwn(options, 'testHost')) {
+      options = { ...options };
+      delete options.testMode;
+      delete options.testHost;
+    }
     this.opts = { ...LOBBY_DEFAULTS, ...options };
+    // Test rooms stay off until the bound address is known (setTestHost). An empty host fails closed, so a
+    // server that is about to bind 0.0.0.0 does not briefly accept test rooms on the default. [ASSUMED] the
+    // env words are parsed in server/testMode.js.
+    const rawMode = testModeOpt != null ? testModeOpt : (typeof process !== 'undefined' && process.env ? process.env.SP_TEST_MODE : undefined);
+    this.testMode = parseTestModeEnv(rawMode);
+    this.testUnrecognized = unrecognizedTestMode(rawMode);
+    this.testHost = '';
+    this.testEnabled = false;
+    this.testWarn = this.testUnrecognized;
+    if (testHostOpt != null) this.setTestHost(testHostOpt);
     /** @type {Map<string, Room>} */
     this.rooms = new Map();
     /** @type {Map<string, NodeJS.Timeout>} lobby grace timers by playerId */
@@ -432,6 +463,19 @@ export class Lobby {
   /** Return the room-pinned lane when enabled. */
   workerPoolFor(key) {
     return this.workerPool?.assign ? this.workerPool.assign(key) : this.workerPool;
+  }
+
+  /**
+   * The address this process bound. Test rooms stay disabled until this runs. `host` empty fails closed.
+   * @param {string} host
+   * @returns {{ enabled: boolean, warn: string|null }}
+   */
+  setTestHost(host) {
+    this.testHost = typeof host === 'string' ? host : '';
+    const gate = testModeGate(this.testMode, this.testHost);
+    this.testEnabled = gate.enabled === true;
+    this.testWarn = this.testUnrecognized || gate.warn;
+    return { enabled: this.testEnabled, warn: this.testWarn };
   }
 
   /**
@@ -1295,7 +1339,8 @@ export class Lobby {
     }
   }
 
-  create(session, { mode, difficulty, capacity }) {
+  create(session, { mode, difficulty, capacity, test } = {}) {
+    if (test === true && this.testEnabled !== true) return fail(ERR.TEST_DISABLED);
     if (mode === 'solo' && capacity != null && capacity !== 1) return fail(ERR.BAD_MSG, 'solo rooms have one seat');
     if (mode === 'coop' && capacity != null && (capacity < MAX_SEATS || capacity > MAX_ROOM_CAPACITY)) return fail(ERR.BAD_MSG);
     if (this.queueByPlayer.has(session.playerId)) return fail(ERR.MATCHING);
@@ -1320,6 +1365,7 @@ export class Lobby {
     if (cur) this.removeMember(cur, session.playerId);
     const roomCapacity = mode === 'solo' ? 1 : (capacity ?? DEFAULT_ROOM_CAPACITY);
     const room = new Room(code, mode, difficulty, this.now(), roomCapacity);
+    room.test = test === true;
     room.content = this.vanilla;
     // the server owner's default plugins (plugins/config.json `default`; header "Gameplay plugins"): none — the original game
     const defaults = this.plugins?.defaults?.() || [];
@@ -1335,16 +1381,17 @@ export class Lobby {
     session.roomCode = code;
     session.notice = null;
     session.pendingResult = null;
-    this.log.info(`[lobby] ${code} created (${mode}/${difficulty}) by ${session.name}`);
+    this.log.info(`[lobby] ${code} created (${mode}/${difficulty}${room.test ? ', test' : ''}) by ${session.name}`);
     this.broadcastState(room);
     return OK;
   }
 
-  join(session, { code }) {
+  join(session, { code, testAck }) {
     if (this.queueByPlayer.has(session.playerId)) return fail(ERR.MATCHING);
     const norm = String(code).trim().toUpperCase();
     const room = norm.length === ROOM_CODE_LEN ? this.rooms.get(norm) : undefined;
     if (!room) return fail(ERR.ROOM_NOT_FOUND);
+    if (room.test && testAck !== true) return fail(ERR.TEST_CONFIRM);
     const cur = this.roomOf(session);
     // idempotent for members; a spectator of this room goes on below: it may take a free player seat (header)
     if (cur === room && !room.spectatorOf(session.playerId)) { this.sendState(room, session); return OK; }
@@ -1380,10 +1427,11 @@ export class Lobby {
    * room.spectate: one of a co-op room's MAX_SPECTATORS spectator seats, in its lobby or during its match (header). In a
    * running match the match registers the spectator and resends what it may see (Match.addSpectator).
    */
-  spectate(session, { code }) {
+  spectate(session, { code, testAck }) {
     const norm = String(code).trim().toUpperCase();
     const room = norm.length === ROOM_CODE_LEN ? this.rooms.get(norm) : undefined;
     if (!room) return fail(ERR.ROOM_NOT_FOUND);
+    if (room.test && testAck !== true) return fail(ERR.TEST_CONFIRM);
     const cur = this.roomOf(session);
     if (cur === room) {
       if (!room.spectatorOf(session.playerId)) return fail(ERR.ALREADY, 'seated as a player');
@@ -1585,7 +1633,7 @@ export class Lobby {
       return fail(ERR.INTERNAL);
     }
     if (!r || !r.ok) return fail(r && isErrCode(r.error) ? r.error : ERR.INTERNAL, r && typeof r.detail === 'string' ? r.detail.slice(0, 200) : undefined);
-    const { cs, vs, plugins: list, warnings, bytes, dataBytes, modes, kitted, trusted, execution } = r.set;
+    const { cs, vs, plugins: list, warnings, bytes, dataBytes, modes, kitted, trusted, execution, rules } = r.set;
     const modded = isContentHash(cs) && cs !== this.vanilla.cs;
     const frozen = (a) => Object.freeze((Array.isArray(a) ? a : []).map((p) => Object.freeze({ ...p })));
     // the operators its plugins add to a 自选 slot's list (welcome.diyKitted holds the server's own): the pages' pickers
@@ -1601,6 +1649,7 @@ export class Lobby {
         warnings: Object.freeze([...(warnings || [])]),
         bytes: Number(bytes) || 0,
         ...(modded ? { dataBytes: Number(dataBytes) || 0, modes: frozen(modes), ...(extra.length ? { kittedExtra: Object.freeze(extra) } : {}) } : {}),
+        ...(rules ? { rules } : {}),
       }),
     };
   }
@@ -1787,12 +1836,19 @@ export class Lobby {
     return this.callMatch(room, method, session.playerId, cancel ? msg.voteId : msg.setupRevision) || fail(ERR.INTERNAL);
   }
 
-  /** Keep cosmetics current in seats, pending queues and external teammates' active matches. */
+  /** Keep both local chess skins and composed operator skins current in seats, queues and active matches. */
   skins(session, { skins }) {
-    const data = this.safeData();
-    const clean = freezeSkins(skins, (id) => lookup('chess', id, data));
-    session.skins = clean;
+    if (!isSkinSelection(skins)) return fail(ERR.BAD_MSG, 'bad skin selection');
     const room = this.roomOf(session);
+    const data = this.dataFor(room);
+    const operators = operatorCharIds(data);
+    const result = checkSkinSelection(skins, (id) => operators.has(id), (id) => {
+      const kept = freezeSkins({ [id]: skins[id] }, (chessId) => lookup('chess', chessId, data));
+      return Object.hasOwn(kept, id);
+    });
+    if (!result || !result.ok) return fail(ERR.BAD_MSG, 'bad skin selection');
+    const clean = Object.freeze({ ...result.skins });
+    session.skins = clean;
     const seat = room?.seatOf(session.playerId);
     if (seat) seat.skins = clean;
     const queued = this.queueByPlayer.get(session.playerId);
@@ -1800,13 +1856,10 @@ export class Lobby {
     if (queuedSeat) queuedSeat.skins = clean;
     const active = this.activeMatchOf(session);
     const match = active?.queue ? active.match : seat ? room.match : null;
-    if (!match || typeof match.setSkins !== 'function') return OK;
-    try {
-      return match.setSkins(session.playerId, clean) || OK;
-    } catch (e) {
-      this.log.error('[lobby] match.setSkins failed', e);
-      return fail(ERR.INTERNAL);
-    }
+    if (!match) return OK;
+    if (typeof match.setSkins !== 'function') return fail(ERR.ROOM_STARTED, 'stored for the next match');
+    try { return match.setSkins(session.playerId, clean) || OK; }
+    catch (e) { this.log.error('[lobby] match.setSkins failed', e); return fail(ERR.INTERNAL); }
   }
 
   /** Authenticated player's public room display, independent of Match/Worker gameplay state. */
@@ -1853,7 +1906,10 @@ export class Lobby {
     if (typeof room.match.setLoadout !== 'function') return fail(ERR.ROOM_STARTED, 'stored for the next match');
     let r;
     try {
-      r = room.match.setLoadout(session.playerId, loadout, opsSet);
+      // Preserve named defaults for prep merging: normalisation drops them, but they mean reset this operator.
+      r = ruleOption(room.content?.rules, 'prepLoadout') === 'prep'
+        ? room.match.setLoadout(session.playerId, entries, ops)
+        : room.match.setLoadout(session.playerId, loadout, opsSet);
     } catch (e) {
       this.log.error(`[lobby] ${room.code} match.setLoadout threw`, e);
       return fail(ERR.INTERNAL);
@@ -1903,6 +1959,14 @@ export class Lobby {
     return OK;
   }
 
+  /**
+   * room.skins (docs/SKINS.md): store the appearances this player chose for their operators, on the session and the
+   * seat, and hand them to a running match.
+   *
+   * Unlike room.loadout there is no phase gate. The loadout is frozen at INFO_CHECK because it changes what a unit
+   * *does*; a skin changes only what it looks like, and it is public — a teammate switching model mid-match is
+   * harmless, and the next `m.public` broadcast carries it to everyone.
+   */
   /** The game data of a room's content (header "Gameplay plugins"): its content set's, else the server's. @param {Room | null} room */
   dataFor(room) {
     if (room?.modded) {
@@ -1969,7 +2033,16 @@ export class Lobby {
       const r = checkDiyPicks({ ...diy }, { data, kitted: this.kittedFor(room) });
       diy = r && 'ok' in r ? freezeDiy(r.picks) : null;
     }
-    return { loadout, ops, notOwned, diy };
+    // 干员皮肤 (docs/SKINS.md): the skinId lives in a cosmetic overlay, not the content set, but the KEY is an operator
+    // of this room. A charId the content does not have is dropped; a map that is no longer a plain charId→skinId
+    // selection is left off the seat rather than handed to the match.
+    let skins = null;
+    if (s.skins && typeof s.skins === 'object') {
+      const ids = operatorCharIds(data);
+      const res = checkSkinSelection(s.skins, (id) => ids.has(id), (id) => !!lookup('chess', id, data));
+      if (res.ok) skins = Object.freeze({ ...res.skins });
+    }
+    return { loadout, ops, notOwned, diy, skins };
   }
 
   /**
@@ -1977,10 +2050,18 @@ export class Lobby {
    * server's content identity (header "Content identity").
    */
   welcomeInfo() {
-    if (!this.vanilla) return { diyKitted: KITTED_CHARS };
-    let n;
-    try { n = Number(this.plugins?.unofficial?.()) || 0; } catch { n = 0; }
-    return { diyKitted: KITTED_CHARS, content: n > 0 ? { vanilla: this.vanilla.cs, plugins: n } : { vanilla: this.vanilla.cs } };
+    let info;
+    if (!this.vanilla) info = { diyKitted: KITTED_CHARS };
+    else {
+      let n;
+      try { n = Number(this.plugins?.unofficial?.()) || 0; } catch { n = 0; }
+      info = { diyKitted: KITTED_CHARS, content: n > 0 ? { vanilla: this.vanilla.cs, plugins: n } : { vanilla: this.vanilla.cs } };
+      // Catalogue metadata, never part of a room or match; omitted when no loaded plugin publishes a notice.
+      if (this.plugins?.hasNotices?.()) info.content.notices = true;
+    }
+    // Omitted when the switch is off, so a welcome from a normal server stays identical.
+    if (this.testEnabled === true) info.testMode = true;
+    return info;
   }
 
   // ---------------------------------------------------------------------------------------------------
@@ -1999,6 +2080,7 @@ export class Lobby {
    * @param {Room} room @param {string | null} key @param {object | null} checkpoint
    */
   startMatchWith(room, key, checkpoint, { departedPlayerIds = [] } = {}) {
+    if (room.test && !this.testEnabled) return fail(ERR.TEST_DISABLED);
     if (room.recoveryContentMissing || (checkpoint?.requireCs && checkpoint.cs !== room.content?.cs)) return fail(ERR.CONTENT_NOT_READY);
     if (this.matchWorkerPool && !room.modded) return this.startMatchWithWorker(room, key, checkpoint, { departedPlayerIds });
     return this.startMatchWithLocal(room, key, checkpoint, { departedPlayerIds });
@@ -2027,7 +2109,7 @@ export class Lobby {
       const match = await this.matchWorkerPool.create(room.code, {
         roomCode: room.code, mode: room.mode, difficulty: room.difficulty, modeId: modeIdFor(room.mode, room.difficulty),
         seats, spectators: room.spectators.map((s) => s.playerId), consoleEnabled: !!room.consoleEnabled,
-        hostId: room.hostId, hostSpeedEnabled: hostSpeedEnabled(room), ...(room.content ? { cs: room.content.cs } : {}),
+        hostId: room.hostId, hostSpeedEnabled: hostSpeedEnabled(room), ...(room.test === true ? { test: true } : {}), ...(room.content ? { cs: room.content.cs } : {}),
         seed, matchNo, aiPicksLast: !!room.aiPicksLast,
       }, {
         created: (match) => {
@@ -2114,7 +2196,11 @@ export class Lobby {
         ...(room.content?.vs ? { vs: room.content.vs } : {}),
         ...(modded ? { requireCs: true } : {}),
         hostSpeedEnabled: hostSpeedEnabled(room),
+        ...(room.test === true ? { test: true } : {}),
         workerPool: modded ? null : this.workerPoolFor(room.code),
+        ...(modded ? { kitted: this.kittedFor(room) } : {}),
+        ...(room.content?.rules ? { rules: room.content.rules } : {}),
+        ...(room.content?.offers?.length ? { offers: room.content.offers } : {}),
         log: this.log,
         now: this.now,
         send: (playerId, msg, encoded) => (ctx.live ? this.matchSend(room, ctx, playerId, msg, encoded) : false),
@@ -2164,7 +2250,7 @@ export class Lobby {
       room.matchKey = key;
       room.replay = null;
       room.matchCount++;
-      this.log.info(`[lobby] ${room.code} match #${room.matchCount} starting (${room.mode}/${room.difficulty}, ${seats.length} seats, seed ${seed}${modded ? `, content ${room.content.cs.slice(0, 8)}${match.hosted ? ' in its match host' : ''}` : ''})`);
+      this.log.info(`[lobby] ${room.code} match #${room.matchCount} starting (${room.mode}/${room.difficulty}, ${seats.length} seats, seed ${seed}${room.test ? ', test' : ''}${modded ? `, content ${room.content.cs.slice(0, 8)}${match.hosted ? ' in its match host' : ''}` : ''})`);
       this.broadcastState(room);
       match.start();
       this.notifyMatchStarted(room.code, match);
@@ -2584,6 +2670,10 @@ export class Lobby {
   }
 
   routeGameNow(session, msg) {
+    if (msg.t === 'g.test') {
+      if (this.testEnabled !== true) return fail(ERR.TEST_DISABLED);
+      if (this.roomOf(session)?.test !== true) return fail(ERR.TEST_FORBIDDEN);
+    }
     const active = this.activeMatchOf(session);
     const room = this.roomOf(session);
     const match = active?.match || room?.match;
