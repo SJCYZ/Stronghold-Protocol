@@ -97,15 +97,22 @@ const noopLog = { info() {}, warn() {}, error() {}, debug() {} };
 /** One logical player identity; survives socket reconnects for the reconnect window. */
 export class Session {
   /**
-   * @param {{ playerId: string, token: string, name: string, now?: number }} init
+   * @param {{ playerId: string, token: string, name: string, identity?: object|null, now?: number }} init
    */
-  constructor({ playerId, token, name, now = Date.now() }) {
+  constructor({ playerId, token, name, identity = null, now = Date.now() }) {
     /** @type {string} public id, shared with other players */
     this.playerId = playerId;
     /** @type {string} secret 128-bit hex reconnect token (only ever sent to its owner) */
     this.token = token;
     /** @type {string} sanitized nickname */
     this.name = name;
+    this.authType = identity?.type === 'account' || identity?.type === 'guest' ? identity.type : null;
+    this.wgsSubject = this.authType === 'account' ? identity.subject : null;
+    this.wgsAuthVersion = this.authType === 'account' ? identity.authVersion : null;
+    this.wgsSessionRef = this.authType === 'account' ? identity.sessionRef : null;
+    this.guestInviteId = this.authType === 'guest' ? identity.inviteId : null;
+    this.guestRoomId = this.authType === 'guest' ? identity.roomId : null;
+    this.guestGeneration = this.authType === 'guest' ? identity.generation : null;
     /** @type {import('ws').WebSocket | null} currently bound socket */
     this.ws = null;
     /** @type {boolean} */
@@ -179,13 +186,13 @@ export class SessionRegistry {
    * @param {string} name
    * @returns {Session | null}
    */
-  create(name) {
+  create(name, identity = null) {
     if (this.byPlayerId.size >= this.maxSessions && !this.evictOne()) return null;
     let playerId;
     do playerId = 'p_' + randomBytes(5).toString('hex'); while (this.byPlayerId.has(playerId));
     let token;
     do token = newToken(); while (this.byTokenMap.has(token));
-    const s = new Session({ playerId, token, name, now: this.now() });
+    const s = new Session({ playerId, token, name, identity, now: this.now() });
     this.byPlayerId.set(playerId, s);
     this.byTokenMap.set(token, s);
     return s;
@@ -589,16 +596,18 @@ export class Network {
    * @param {{
    *   nameModeration?: { check: Function },
    *   registry: SessionRegistry,
-   *   handler: { onHello?: Function, onMessage: Function, onDisconnect?: Function, onExpire?: Function, welcomeInfo?: Function, hasActiveMatch?: Function },
+   *   handler: { onHello?: Function, onMessage: Function, onDisconnect?: Function, onExpire?: Function, welcomeInfo?: Function, hasActiveMatch?: Function, acceptGuestSession?: Function, validateGuestSession?: Function },
+   *   auth?: { consumeTicket: Function, introspect: Function },
    *   log?: { info: Function, warn: Function, error: Function, debug?: Function },
    *   now?: () => number,
    *   options?: Partial<typeof NET_DEFAULTS>,
    * }} opts
    */
-  constructor({ registry, handler, log = noopLog, now = Date.now, options = {}, nameModeration = null }) {
+  constructor({ registry, handler, auth = null, log = noopLog, now = Date.now, options = {}, nameModeration = null }) {
     this.nameModeration = nameModeration;
     this.registry = registry;
     this.handler = handler;
+    this.auth = auth;
     this.log = log;
     this.now = now;
     this.opts = { ...NET_DEFAULTS, ...options };
@@ -873,6 +882,8 @@ export class Network {
   /** @param {Connection} conn @param {any} msg @param {number} now */
   onHelloMsg(conn, msg, now) {
     const rid = msg.rid;
+    if (conn.reviewPending) { this.reply(conn, errorMsg(ERR.RATE, rid, 'hello review pending')); return; }
+    if (msg.authTicket != null && msg.token != null) { this.reply(conn, errorMsg(ERR.BAD_MSG, rid, 'authTicket and token are mutually exclusive')); return; }
     if (msg.version != null && msg.version !== PROTOCOL_VERSION) {
       this.reply(conn, errorMsg(ERR.BAD_MSG, rid, `version mismatch: server ${PROTOCOL_VERSION}`));
       return;
@@ -893,7 +904,12 @@ export class Network {
           this.reply(conn, errorMsg(result.code, rid));
           return;
         }
-        this.acceptHello(conn, msg, name, this.now());
+        this.acceptHello(conn, msg, name, this.now()).catch((e) => {
+          if (generation !== conn.helloReview || conn.closing || this.closed || this.draining) return;
+          conn.reviewPending = false;
+          this.log.warn('[net] hello authentication failed');
+          this.reply(conn, errorMsg(ERR.BAD_MSG, rid, 'authentication required'));
+        });
       }).catch(() => {
         if (generation !== conn.helloReview || conn.closing || this.closed || this.draining) return;
         conn.reviewPending = false;
@@ -902,7 +918,11 @@ export class Network {
       });
       return;
     }
-    this.acceptHello(conn, msg, name, now);
+    this.acceptHello(conn, msg, name, now).catch((e) => {
+      conn.reviewPending = false;
+      this.log.warn('[net] hello authentication failed');
+      this.reply(conn, errorMsg(ERR.BAD_MSG, rid, 'authentication required'));
+    });
   }
 
   /** Check before review and again before binding; async reviews never reserve a capacity slot. */
@@ -926,30 +946,80 @@ export class Network {
   }
 
   // Only bind/create/rename after approval. Re-resolve tokens after the async boundary.
-  acceptHello(conn, msg, name, now) {
+  async acceptHello(conn, msg, name, now) {
     const rid = msg.rid;
+    conn.reviewPending = true;
     if (!conn.session && msg.token && this.registry.recoveryPending && !this.registry.byToken(msg.token)) {
       conn.close(1013, 'saved session recovery pending');
+      conn.reviewPending = false;
       return;
     }
-    if (this.rejectAtCapacity(conn, msg, now)) return;
+    if (this.rejectAtCapacity(conn, msg, now)) { conn.reviewPending = false; return; }
 
     let session = conn.session;
     let resumed = false;
     const repeat = !!session;
+    let newGuest = false;
+    let newSession = false;
     if (!session) {
       session = msg.token ? this.registry.byToken(msg.token) : null;
       if (session) {
+        if (session.authType !== 'account' && session.authType !== 'guest') {
+          this.reply(conn, errorMsg(ERR.BAD_MSG, rid, 'authentication required')); conn.reviewPending = false; return;
+        }
+        if (session.authType === 'account' && !await this.auth?.introspect(session.wgsSessionRef, session.wgsSubject, session.wgsAuthVersion)) {
+          this.reply(conn, errorMsg(ERR.BAD_MSG, rid, 'account session expired')); conn.reviewPending = false; return;
+        }
+        if (session.authType === 'guest' && await this.handler.validateGuestSession?.(session) !== true) {
+          this.reply(conn, errorMsg(ERR.BAD_MSG, rid, 'guest session expired')); conn.reviewPending = false; return;
+        }
+        if (conn.closing || this.closed || this.draining || conn.ws.readyState !== WS_OPEN) { conn.reviewPending = false; return; }
         if (session.connected && session.ws && session.ws !== conn.ws
           && (msg.noReplace || (Number.isFinite(msg.claimAt) && session.claimAt != null && msg.claimAt > session.claimAt))) {
           this.reply(conn, errorMsg(ERR.SESSION_IN_USE, rid));
+          conn.reviewPending = false;
           return;
         }
         resumed = true;
         if (session.ws && session.ws !== conn.ws) this.detachReplaced(session.ws);
+      } else if (msg.authTicket && this.auth) {
+        const ticket = this.auth.consumeTicket(msg.authTicket);
+        if (!ticket || !['account', 'guest'].includes(ticket.type)) {
+          this.reply(conn, errorMsg(ERR.BAD_MSG, rid, 'authentication required')); conn.reviewPending = false; return;
+        }
+        if (ticket.type === 'account') {
+          if (!await this.auth.introspect(ticket.sessionRef, ticket.subject, ticket.authVersion)) {
+            this.reply(conn, errorMsg(ERR.BAD_MSG, rid, 'account session expired')); conn.reviewPending = false; return;
+          }
+        }
+        if (conn.closing || this.closed || this.draining || conn.ws.readyState !== WS_OPEN) { conn.reviewPending = false; return; }
+        session = this.registry.create(name, ticket);
+        if (!session) { this.reply(conn, errorMsg(ERR.INTERNAL, rid, 'server full')); conn.reviewPending = false; return; }
+        newSession = true;
+        newGuest = ticket.type === 'guest';
       } else {
-        session = this.registry.create(name);
-        if (!session) { this.reply(conn, errorMsg(ERR.INTERNAL, rid, 'server full')); return; }
+        this.reply(conn, errorMsg(ERR.BAD_MSG, rid, 'authentication required')); conn.reviewPending = false; return;
+      }
+      if (newGuest) {
+        let accepted = false;
+        try { accepted = await this.handler.acceptGuestSession?.(session) === true; }
+        catch { accepted = false; }
+        if (!accepted) {
+          this.registry.remove(session);
+          this.reply(conn, errorMsg(ERR.BAD_MSG, rid, 'guest invite unavailable')); conn.reviewPending = false; return;
+        }
+        if (conn.closing || this.closed || this.draining || conn.ws.readyState !== WS_OPEN) {
+          this.registry.remove(session);
+          try { this.handler.onExpire?.(session); } catch { /* admission cleanup is best effort */ }
+          conn.reviewPending = false; return;
+        }
+      }
+      if (this.rejectAtCapacity(conn, msg, this.now())) {
+        if (newSession) {
+          this.registry.remove(session);
+          if (newGuest) { try { this.handler.onExpire?.(session); } catch { /* admission cleanup is best effort */ } }
+        }
+        conn.reviewPending = false; return;
       }
       conn.session = session;
       session.ws = conn.ws;
@@ -968,6 +1038,7 @@ export class Network {
     const welcome = { ...(extra && typeof extra === 'object' ? extra : null), t: 'welcome', playerId: session.playerId, token: session.token, name: session.name, serverNow: now, version: PROTOCOL_VERSION, resumed, online: this.onlineCount };
     if (validRid(rid)) welcome.rid = rid;
     this.reply(conn, welcome);
+    conn.reviewPending = false;
     try {
       this.handler.onHello?.(session, { resumed, repeat });
     } catch (e) {

@@ -36,6 +36,7 @@ export function gameAuthConfigFromEnv(env = process.env) {
     wgsUrl: String(env.SP_WGS_URL ?? '').trim().replace(/\/+$/, ''),
     wgsClientId: String(env.SP_WGS_CLIENT_ID ?? '').trim(),
     wgsClientSecret: String(env.SP_WGS_CLIENT_SECRET ?? ''),
+    wgsCallbackUrl: String(env.SP_WGS_CALLBACK_URL ?? '').trim(),
     wgsTimeoutMs: parseEnvLimit(env.SP_WGS_TIMEOUT_MS, 5000, 'SP_WGS_TIMEOUT_MS'),
   };
 }

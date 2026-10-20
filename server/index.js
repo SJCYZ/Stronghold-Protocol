@@ -32,6 +32,8 @@
 import http from 'node:http';
 import { nameModerationFromEnv } from './nameModeration.js';
 import { createNameModerationRoute } from './http/nameModeration.js';
+import { createGameAuthRoutes } from './http/gameAuth.js';
+import { WgsSso } from './auth/wgsSso.js';
 import path from 'node:path';
 import { gameAuthConfigFromEnv, parseAssetCdn, parseEnvLimit, parseWsCompression } from './http/config.js';
 import { openStoreFromEnv } from './redis.js';
@@ -98,6 +100,8 @@ export async function startServer(opts = {}) {
   const nameModeration = opts.nameModeration !== undefined ? opts.nameModeration : nameModerationFromEnv();
   const { port, host } = listenAddress(opts);
   const log = opts.log || makeLogger(!!opts.quiet);
+  const authConfig = gameAuthConfigFromEnv();
+  const sso = opts.wgsSso || new WgsSso({ config: authConfig, callbackUrl: authConfig.wgsCallbackUrl });
   const { publicDir, dataDir, sharedDir, packsDir, pluginsDir } = serveDirs(opts);
   const simDir = path.join(ROOT, 'server', 'sim');
 
@@ -166,7 +170,8 @@ export async function startServer(opts = {}) {
   const matchWorkerPool = ownsMatchWorkerPool && matchWorkers > 0
     ? new MatchWorkerPool({ data, lanes: matchWorkers, log, timeoutMs: workerConfig.timeoutMs })
     : opts.matchWorkerPool || null;
-  const { registry, lobby, network } = createSessionStack({ ...opts, nameModeration }, { data, log, workerPool, matchWorkerPool, content, plugins: roomSets, hosts });
+  const { registry, lobby, network } = createSessionStack({ ...opts, auth: sso, nameModeration }, { data, log, workerPool, matchWorkerPool, content, plugins: roomSets, hosts });
+  lobby.auth = sso;
   // Resume the last state before listening: every reconnecting client is recognized by its token right away.
   const persister = store ? new Persister({ store, registry, lobby, log, now: opts.now, saveMs }) : null;
   if (store && opts.resume !== false) {
@@ -202,7 +207,9 @@ export async function startServer(opts = {}) {
   const servePublicApi = createPublicApi({ lobby, announcements, trustProxy: network.opts.trustProxy, sendJson, sendError });
 
   const serveNameReview = createNameModerationRoute({ moderation: nameModeration, trustProxy: network.opts.trustProxy });
-  const serveApi = async (req, res, pathname) => await serveNameReview(req, res, pathname) || await servePublicApi(req, res, pathname);
+  const serveGameAuth = createGameAuthRoutes({ sso, lobby, trustProxy: network.opts.trustProxy });
+  const serveApi = async (req, res, pathname) => await serveNameReview(req, res, pathname)
+    || await serveGameAuth(req, res, pathname) || await servePublicApi(req, res, pathname);
 
   const serveStatic = createStaticHandler({ publicDir, dataDir, sharedDir, simDir, packsDir, pluginsDir, packs, content, log, visual, contents, cdnBase: assetsCdn, dataCdnBase: dataCdn, resourcePackRoutes, clientBuild });
   // the plugin studio (DESIGN §32.9): its page and API for this machine and the local network; it watches plugins/ only

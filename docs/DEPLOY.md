@@ -23,10 +23,11 @@
 SP_WGS_URL=https://wgs.example.invalid
 SP_WGS_CLIENT_ID=stronghold
 SP_WGS_CLIENT_SECRET=<由密钥管理器注入>
+SP_WGS_CALLBACK_URL=https://game.example.invalid/auth/wgs/callback
 SP_WGS_TIMEOUT_MS=5000
 ```
 
-WGS 固定接口为 `GET /api/v1/game-sso/authorize`、`POST /api/v1/game-sso/token` 和 `POST /api/v1/game-sso/introspect`。Stronghold 登录入口和回调为 `GET /auth/wgs/start`、`GET /auth/wgs/callback`；访客凭分享码兑换接口为 `POST /auth/guest/redeem`，请求 JSON `{ "shareCode": "<share code>" }`，响应 `200` JSON `{ "authTicket": "<one-time ticket>" }`。访客票据 60 秒过期且一次性使用。首次 WebSocket `hello` 对账号和访客统一使用 `authTicket` 字段；成功后由服务端签发 Stronghold 本地 `token` 供重连，身份和权限范围仅由服务端票据记录决定。
+WGS 固定接口为 `GET /api/v1/game-sso/authorize`、`POST /api/v1/game-sso/token` 和 `POST /api/v1/game-sso/introspect`。Stronghold 登录入口和回调为 `GET /auth/wgs/start`、`GET /auth/wgs/callback`；`SP_WGS_CALLBACK_URL` 必须与 WGS 登记的回调地址逐字一致。访客凭分享码兑换接口为 `POST /auth/guest/redeem`，请求 JSON `{ "shareCode": "<share code>" }`，响应 `200` JSON `{ "authTicket": "<one-time ticket>" }`。访客票据 60 秒过期且一次性使用。首次 WebSocket `hello` 对账号和访客统一使用 `authTicket` 字段；成功后由服务端签发 Stronghold 本地 `token` 供重连，身份和权限范围仅由服务端票据记录决定。
 
 账号 OAuth 回调成功后，Stronghold 生成 60 秒有效的一次性 `authTicket`，通过标题页 URL fragment `#authTicket=<ticket>` 交给浏览器；fragment 不会随 HTTP 请求发送。WGS 授权码仅保留其 SHA-256 摘要于 Redis，key `game-sso:code:<sha256>`、TTL 60 秒，并在兑换时原子消费。单局分享码由房间内账号玩家通过 `room.invite.create` 生成或轮换，成功响应只返回一次明文分享码；轮换立即撤销旧码。四字符房间码只用于定位，不是授权凭据。
 

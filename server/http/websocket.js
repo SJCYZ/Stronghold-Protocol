@@ -86,7 +86,7 @@ export function createSessionStack(opts, { data, log, workerPool, matchWorkerPoo
     registry, log, MatchClass: opts.MatchClass, getData: () => data, seedFn: opts.seedFn, options: lobbyOptions,
     workerPool, matchWorkerPool, content, plugins, hosts, nameModeration: opts.nameModeration,
   });
-  const network = new Network({ registry, handler: lobby, log, options: netOptions, nameModeration: opts.nameModeration });
+  const network = new Network({ registry, handler: lobby, auth: opts.auth || null, log, options: netOptions, nameModeration: opts.nameModeration });
   return { registry, lobby, network };
 }
 
