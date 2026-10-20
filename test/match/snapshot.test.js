@@ -47,6 +47,7 @@ test('checkpoint restores stand-ins, self-selected records and their remaining p
 test('checkpoint restores the host-selected speed as the next combat phase default', () => {
   const h = makeMatch({ mode: 'solo', humans: 1, hostId: 'p_0', seed: 42, fake: true });
   h.start().toPrep(1);
+  h.m.defaultGameSpeed = 3.4;
   h.m.gameSpeed = 3.4;
   const doc = snapshotMatch(h.m);
   assert.ok(doc);

@@ -261,6 +261,26 @@ test('多人联防 checkpoint 保存当前轮次与已抽援助者，恢复不�
   }
 });
 
+test('多人联防 checkpoint 不把插件阶段速度恢复为本局默认速度', () => {
+  const h = reachUnite({ instant: false });
+  let restoredMatch;
+  try {
+    h.m.defaultGameSpeed = 3.2;
+    assert.equal(h.m._combatClock.setSpeed(1.4), true, '模拟 SDK 在当前联防阶段临时调速');
+    assert.equal(h.m.gameSpeed, 1.4);
+    const doc = snapshotMatch(h.m);
+    assert.ok(doc);
+
+    restoredMatch = makeMatch({ mode: 'coop', humans: 5, seed: 810, fake: true, instant: false });
+    assert.equal(restoreMatch(restoredMatch.m, doc, { createRngFromState, log: { warn() {}, info() {}, error() {}, debug() {} } }), true);
+    assert.equal(restoredMatch.m.defaultGameSpeed, 3.2);
+    assert.equal(restoredMatch.m.gameSpeed, 3.2, '恢复时重建的联防战场使用本局默认速度');
+  } finally {
+    h.m.dispose();
+    restoredMatch?.m.dispose();
+  }
+});
+
 test('多人联防第二轮 checkpoint 保留已完成第一轮而不重复结算', () => {
   const h = reachUnite();
   let restoredMatch;

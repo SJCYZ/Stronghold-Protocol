@@ -237,7 +237,8 @@ export function captureMatch(m) {
   const doc = { v: SNAPSHOT_VERSION, phase: m.phase, round: m.round, savedAt: now };
   for (const k of MATCH_FIELDS) {
     if (k === 'round') continue;
-    doc[k] = m[k];
+    // UNITE fields restart from their opening wave, so resume from the Match default rather than a plugin's phase-local speed.
+    doc[k] = k === 'gameSpeed' ? m.defaultGameSpeed : m[k];
   }
   // the phase clock travels as *remaining* time: the match is frozen while the server is down
   doc.deadlineRemainingMs = m.deadline > 0 ? Math.max(0, Math.round(m.deadline - now)) : 0;
