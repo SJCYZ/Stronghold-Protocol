@@ -20,20 +20,38 @@ function sameSecret(left, right) {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
-async function readJson(req) {
-  const chunks = [];
-  let size = 0;
-  let tooLarge = false;
-  for await (const chunk of req) {
-    size += chunk.length;
-    if (size > BODY_LIMIT) tooLarge = true;
-    else if (!tooLarge) chunks.push(chunk);
-  }
-  if (tooLarge) return null;
-  try {
-    const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
-    return body && typeof body === 'object' && !Array.isArray(body) ? body : null;
-  } catch { return null; }
+function readJson(req) {
+  if (Number(req.headers['content-length']) > BODY_LIMIT) return Promise.resolve({ tooLarge: true });
+  return new Promise((resolve) => {
+    const chunks = [];
+    let size = 0;
+    const cleanup = () => {
+      req.off('data', onData);
+      req.off('end', onEnd);
+      req.off('error', onError);
+      req.off('aborted', onError);
+    };
+    const onData = (chunk) => {
+      size += chunk.length;
+      if (size > BODY_LIMIT) {
+        cleanup();
+        req.pause();
+        resolve({ tooLarge: true });
+      } else chunks.push(chunk);
+    };
+    const onEnd = () => {
+      cleanup();
+      try {
+        const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+        resolve({ body: body && typeof body === 'object' && !Array.isArray(body) ? body : null });
+      } catch { resolve({ body: null }); }
+    };
+    const onError = () => { cleanup(); resolve({ body: null }); };
+    req.on('data', onData);
+    req.once('end', onEnd);
+    req.once('error', onError);
+    req.once('aborted', onError);
+  });
 }
 
 /** Stronghold login callback and per-match guest ticket redemption. */
@@ -99,7 +117,14 @@ export function createGameAuthRoutes({ sso, lobby, trustProxy, now = Date.now })
     if (!bucket.take(at)) {
       res.setHeader('Retry-After', '1'); sendJson(req, res, 429, { error: 'RATE_LIMITED' }); return true;
     }
-    const body = await readJson(req);
+    const result = await readJson(req);
+    if (result.tooLarge) {
+      res.shouldKeepAlive = false;
+      res.setHeader('Connection', 'close');
+      sendJson(req, res, 413, { error: 'BODY_TOO_LARGE' });
+      return true;
+    }
+    const body = result.body;
     if (!body || typeof body.shareCode !== 'string' || body.shareCode.length < 16 || body.shareCode.length > 256) {
       sendJson(req, res, 400, { error: 'INVALID_SHARE_CODE' }); return true;
     }
