@@ -37,7 +37,7 @@
 
 ## Implementation Tasks
 
-### 1. 固定并记录 SSO HTTP 协议与部署配置
+## Task 1: 固定并记录 SSO HTTP 协议与部署配置
 
 - 明确 WGS client 注册配置、精确 Stronghold callback、Stronghold 出站地址/超时、Redis key/TTL 和错误响应。
 - 文档化接口：
@@ -53,7 +53,7 @@
 
 完成条件：两端路径、请求字段、状态码、时限和配置名完全一致；秘密只存在于服务端配置。
 
-### 2. 在 WGS 增加游戏专用 SSO 提供方
+## Task 2: 在 WGS 增加游戏专用 SSO 提供方
 
 - 新增小型 SSO 模块管理 client allowlist、授权码摘要、票据原子兑换和 opaque session reference。
 - 新增游戏资格依赖：基于 `get_current_user`，检查有效、未封禁/删除、邮箱已验证及 QQ 已绑定；不调用 `require_shell_user`，因此 SMTP 全站初始化状态不阻断游戏 SSO。
@@ -66,7 +66,7 @@
 
 完成条件：不符合资格的账号无法授权或核验；SMTP pending 不影响符合资格账号；错误 client/callback/state/PKCE、过期或重复 code 均失败关闭。
 
-### 3. 在 Stronghold 建立账号与访客会话凭据
+## Task 3: 在 Stronghold 建立账号与访客会话凭据
 
 - 新增 WGS SSO 客户端模块，生成 state/PKCE，短时保存事务，限制重定向及网络超时；仅后端调用 token/introspect。
 - 用服务端保存的一次性 Stronghold 登录票据将回调身份传到首次 hello；票据只含/引用已核验的账号身份，不把 WGS session reference 交给浏览器。
@@ -78,7 +78,7 @@
 
 完成条件：身份只由服务端消费的一次性票据或已有强范围 Session 建立；客户端提供的身份字段不起授权作用。
 
-### 4. 在 Lobby 入口实施房间与单局权限
+## Task 4: 在 Lobby 入口实施房间与单局权限
 
 - 账号 Session 沿用当前已授权房间、创建/匹配/观战能力；账号在重连及新局权限边界重新 introspect，WGS 故障时拒绝相关操作。
 - 账号玩家在所属房间且未开局时可创建/更新该房间下一局的分享码；原四字符房间码继续只用于定位。
@@ -90,7 +90,7 @@
 
 完成条件：所有 HTTP/WS/房间与队列入口都由服务端同一身份规则限制；不依靠前端隐藏按钮。
 
-### 5. 将最小身份范围纳入 Redis 恢复
+## Task 5: 将最小身份范围纳入 Redis 恢复
 
 - `server/persist.js` 的 Session 文档保存 account/guest 类型和最小服务端范围；不保存一次性登录/访客票据。
 - 房间持久化保存邀请码摘要、失效状态、目标/活动 generation。旧文档缺少身份类型时 Session 不予恢复；不按原 playerId、token、nickname 或房间席位补身份。
@@ -101,7 +101,7 @@
 
 完成条件：重启后有效账号和本局访客仅恢复原范围；旧匿名会话和旧局访客不能获得权限。
 
-### 6. 接入标题页、房间邀请与语言资源
+## Task 6: 接入标题页、房间邀请与语言资源
 
 - 标题页提供 WGS 登录、分享码/分享链接进入；登录及访客都以 Stronghold 本地重连 token 参加 hello，回调只把 Stronghold 登录票据经 fragment 交给页面，读取后立即移除 fragment。
 - 邀请链接将分享秘密放在 URL fragment，前端读取后调用 POST 兑换并清除 fragment；不要将秘密放 query、访问日志、复制以外的持久化或分析事件。
