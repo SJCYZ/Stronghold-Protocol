@@ -13,6 +13,11 @@ services:
       SP_STUDIO_HOSTS: ${SP_STUDIO_HOSTS:-}
       SP_ASSETS_CDN: ${SP_ASSETS_CDN:-}
       SP_DATA_CDN: ${SP_DATA_CDN:-}
+      SP_WGS_URL: "${SP_WGS_URL:-}"
+      SP_WGS_CLIENT_ID: "${SP_WGS_CLIENT_ID:-}"
+      SP_WGS_CLIENT_SECRET: "${SP_WGS_CLIENT_SECRET:-}"
+      SP_WGS_CALLBACK_URL: "${SP_WGS_CALLBACK_URL:-}"
+      SP_WGS_TIMEOUT_MS: "${SP_WGS_TIMEOUT_MS:-5000}"
     ports:
       - "127.0.0.1:3080:3000"
     volumes:
