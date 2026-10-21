@@ -132,6 +132,7 @@ function matchInviteLink(code) {
 function SingleMatchInvite({ room }) {
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
+  const [open, setOpen] = useState(false);
   const creating = useRef(false);
   useEffect(() => { if (!room.inviteAvailable) setCode(''); }, [room.inviteAvailable]);
   const makeInvite = async () => {
@@ -152,16 +153,23 @@ function SingleMatchInvite({ room }) {
     toast(ok ? t(link ? '已复制单局邀请链接' : '已复制单局分享码') : t('复制失败，请手动复制'), ok ? 'success' : 'warn');
   };
   if (room.inMatch || room.matching) return null;
-  return html`<div class="match-invite brackets">
-    <div class="match-invite__label">${t('单局访客分享')}</div>
-    <p>${t('四位同盟密钥只用于定位房间；单局分享码才允许访客加入下一局。')}</p>
-    <${Button} variant="secondary" size="sm" icon="key" loading=${busy} onClick=${makeInvite}>
-      ${room.inviteAvailable ? t('轮换单局分享码') : t('创建单局分享码')}<//>
-    ${code ? html`<div class="match-invite__code selectable">${code}</div>
-      <div class="match-invite__actions">
-        <${Button} size="sm" icon="copy" onClick=${() => copy(false)}>${t('复制分享码')}<//>
-        <${Button} size="sm" icon="link" onClick=${() => copy(true)}>${t('复制单局链接')}<//>
-      </div>` : null}
+  return html`<div>
+    <${Button} variant="secondary" size="sm" square=${true} icon="key" title=${t('单局访客分享')}
+      aria-label=${t('单局访客分享')} onClick=${() => setOpen(true)} />
+    <${Modal} open=${open} title=${t('单局访客分享')} micro="MATCH INVITE" width="4.2rem" utility=${true}
+      onClose=${() => setOpen(false)}
+      actions=${html`<${Button} variant="primary" onClick=${() => setOpen(false)}>${t('完成')}<//>`}>
+      <div class="match-invite">
+        <p>${t('四位同盟密钥只用于定位房间；单局分享码才允许访客加入下一局。')}</p>
+        <${Button} variant="secondary" size="sm" icon="key" loading=${busy} onClick=${makeInvite}>
+          ${room.inviteAvailable ? t('轮换单局分享码') : t('创建单局分享码')}<//>
+        ${code ? html`<div class="match-invite__code selectable">${code}</div>
+          <div class="match-invite__actions">
+            <${Button} size="sm" icon="copy" onClick=${() => copy(false)}>${t('复制分享码')}<//>
+            <${Button} size="sm" icon="link" onClick=${() => copy(true)}>${t('复制单局链接')}<//>
+          </div>` : null}
+      </div>
+    <//>
   </div>`;
 }
 
@@ -466,8 +474,8 @@ export function RoomScreen() {
         <${PluginTag} room=${room} myId=${me.playerId} />
       </div>
       <div class="topbar__right">
-        ${coop ? html`<div class="room-invite-stack"><${InviteBox} code=${room.code} name=${me.name} difficulty=${room.difficulty} />
-          ${identity.getAuthType() === 'account' && facts.mine && !facts.spectating ? html`<${SingleMatchInvite} room=${room} />` : null}</div>` : html`<div class="solo-note"><${MicroLabel}>SINGLE OPERATOR<//><span>${t('仅限 1 名博士')}</span></div>`}
+        ${coop ? html`<${InviteBox} code=${room.code} name=${me.name} difficulty=${room.difficulty} />
+          ${identity.getAuthType() === 'account' && facts.mine && !facts.spectating ? html`<${SingleMatchInvite} room=${room} />` : null}` : html`<div class="solo-note"><${MicroLabel}>SINGLE OPERATOR<//><span>${t('仅限 1 名博士')}</span></div>`}
       </div>
     </header>
 
