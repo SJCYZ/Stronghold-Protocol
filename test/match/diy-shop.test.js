@@ -235,7 +235,7 @@ test('#650: a solo run keeps the single-player stock (8 at tier 5, 5 at tier 6);
   coop.m.dispose();
 });
 
-test('bans: a 自选 piece whose every bond is off this match has no stock (out of the shop); 协防 is never banned', REAL, () => {
+test('bans: a 自选 piece whose every bond is off this match keeps its personal stock and can enter the shop', REAL, () => {
   // a seed whose drawn bans include 维多利亚 (推进之王's only bond)
   let h = null;
   for (let seed = 1; seed < 400 && !h; seed++) {
@@ -245,21 +245,25 @@ test('bans: a 自选 piece whose every bond is off this match has no stock (out 
   assert.ok(h, 'a seed banning 维多利亚');
   h.start();
   const p0 = h.ps('p_0');
-  assert.deepEqual([...p0.diyBanned], [T5A]);
-  assert.ok(!p0.diyStock.has(T5A));
-  assert.deepEqual(Object.keys(p0.diyStock.snapshot()).sort(), [T5B, T6A], 'the prototypes (协防) stay');
+  assert.deepEqual([...p0.diyBanned], []);
+  assert.ok(p0.diyStock.has(T5A));
+  assert.deepEqual(Object.keys(p0.diyStock.snapshot()).sort(), [T5A, T5B, T6A].sort(), 'all selected slots keep personal stock');
   assert.ok(!h.m.disabledBonds.includes('emptyShip'));
   h.toPrep(1);
   p0.shop.level = 5;
-  for (let i = 0; i < 300; i++) { p0.rollShop(); assert.ok(!p0.shop.slots.some((s) => s && s.id === T5A)); }
+  let seen = false;
+  for (let i = 0; i < 300; i++) { p0.rollShop(); seen ||= p0.shop.slots.some((s) => s && s.id === T5A); }
+  assert.ok(seen, 'a self-selected operator remains eligible for this player\'s shop');
   p0.shop.level = 4;
+  let rewardSeen = false;
   for (let i = 0; i < 40; i++) {
     const o = p0.pushRewardOffer('merge');
-    assert.ok(!o || !o.slots.some((s) => s.id === T5A), 'a banned slot has no stock, so the tier-5 reward never holds it');
+    rewardSeen ||= !!o?.slots.some((s) => s.id === T5A);
     p0.offers = [];
   }
+  assert.ok(rewardSeen, 'the self-selected operator is also eligible for promotion rewards');
   h.m.flush(true);
-  assert.deepEqual(h.lastTo('p_0', 'm.private').diyBanned, [T5A]);
+  assert.deepEqual(h.lastTo('p_0', 'm.private').diyBanned, []);
   h.invariants();
   h.m.dispose();
 });
@@ -379,7 +383,7 @@ test('a placeable 自选 summon comes to the hand like any operator\'s, places, 
   const p0 = h.ps('p_0');
   // 凯尔希 has no kit yet: the kit list is widened for this test (her Mon3tr is a placeable talent summon)
   assert.equal(p0.setDiy({ [T6B]: { charId: 'char_003_kalts', skillIndex: 0, uniEquipId: null } }, { kitted: [...KITTED_CHARS, 'char_003_kalts'] }), true);
-  p0.initDiyStock(new Set());
+  p0.initDiyStock();
   clear(p0);
   const k = gain(p0, T6B);
   const tile = legalTileFor(m, p0, T6B);
@@ -417,7 +421,7 @@ test('a DIY 鸿雪 (her operator kit): her 打字机 piece comes to the hand in 
   h.toPrep(1);
   const p0 = h.ps('p_0');
   assert.equal(p0.setDiy({ [T5B]: { charId: SNOW, skillIndex: 0, uniEquipId: null } }), true, 'a kitted pick: no widened list');
-  p0.initDiyStock(new Set());
+  p0.initDiyStock();
   clear(p0);
   const snow = gain(p0, T5B);
   assert.ok(!p0.hand.some((p) => p && p.kind === 'token'), 'in the hand she brings no summon yet');

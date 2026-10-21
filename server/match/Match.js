@@ -474,10 +474,9 @@ export class Match {
       ? this.order.map((ps) => [ps.playerId, new SharedPool(this.gd, { banned: bans.banned })])
       : []);
     this.itemPool = new SharedItemPool(this.gd, () => this.order);
-    // 自选编队 (0.2.0): each human's slotted DIY pieces get their own stock — none for one whose bonds are all off this
-    // match (player/diy.js initDiyStock); no randomness is drawn here
-    const off = new Set([...bans.drawn, ...bans.staticOff]);
-    for (const ps of this.order) ps.initDiyStock(off);
+    // 自选编队 (0.2.0): each human's slotted DIY pieces get their own stock regardless of this match's bond bans; no
+    // randomness is drawn here
+    for (const ps of this.order) ps.initDiyStock();
 
     this.phase = PHASE.LOBBY;
     this.round = 0;

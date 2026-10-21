@@ -24,7 +24,7 @@ test('a promoted 自选 summoner on the board gets the elite\'s summon count (�
   try {
     h.toPrep(1);
     const ps = h.ps('p_0');
-    ps.initDiyStock(new Set());
+    ps.initDiyStock();
     const piece = ps.acquireChess(T6B, { source: 'buy' });
     assert.ok(piece, 'the 自选 麦哲伦 was gained');
     const tile = legalTileFor(h.m, ps, piece.id);

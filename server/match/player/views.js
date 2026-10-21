@@ -118,8 +118,7 @@ export class PlayerViews {
       standIns: this.standIns,
       // 0.2.0 自选编队: this player's 自选 picks in this match ({ [slotBaseId]: { charId, skillIndex, uniEquipId } } — the seat's
       // when the match started; {} = none) — the client composes the operator's record for its own cards and pieces
-      // (shared/diy.js diyRecord); `diyBanned`: the slotted slots out of the shop this match (every bond of the operator
-      // switched off)
+      // (shared/diy.js diyRecord); `diyBanned` is retained for wire compatibility and is empty in current matches.
       diy: this.diy,
       diyBanned: this.diyBanned,
       // 最终攻势 / 隐秘核心 prep (community report of 2026-10-06, item 51): `{ playerId, side, units }` — the pair partner's

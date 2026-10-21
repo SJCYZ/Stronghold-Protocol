@@ -14,14 +14,12 @@
 //     GameData itself: nothing changes for anyone else. token(id) also finds the 自选 summons (data/backups.json
 //     `tokens`) and placeableTokens() reads their variant of the owner form (`<charId>@<statusKey>`, shared/diy.js
 //     diyTokenOwner), so a placeable 自选 summon comes to the hand like any operator's (PRTS 卫戍协议/帮助 §战斗部署).
-//   * the per-player stock (initDiyStock, called by the match once its bans are drawn): each slotted DIY piece has copies
+//   * the per-player stock (initDiyStock): each slotted DIY piece has copies
 //     of its own — the tier's pool copies, 8 at tier 5 and 5 at tier 6 [ASSUMED: research 0.2.0 §2.5, the excel has no
 //     stock field] — drawn by this player only; it never enters the shared pool (PR #71's shared shop was the mistake to
 //     avoid); in co-op its copies double like the shared pool's (gamedata.js poolCopies × coopPoolMultiplier: 16 / 10 —
-//     the maintainer's decision of 2026-10-15, GitHub #650, DESIGN §32.14.31). A piece all of whose bonds are switched
-//     off this match (本局禁用: the drawn bans and the mode's static list)
-//     gets no stock and so leaves the shop, like a preset chess whose bonds are all off (PRTS 卫戍协议：盟约 "禁用盟约有可能
-//     影响自选的支援干员"); 协防 (emptyShip) is never banned, so a prototype always stays. poolOf(baseId) routes every copy
+//     the maintainer's decision of 2026-10-15, GitHub #650, DESIGN §32.14.31). These copies ignore disabled bonds,
+//     unlike preset chess in the shared pool. poolOf(baseId) routes every copy
 //     taken or returned for a slotted slot to that stock (buy, reward picks, merges, promotions, sells, temp, elimination).
 //   * the shop's draws (diyRollEntries): the stock of each slotted slot joins this player's copy-weighted shop rolls,
 //     weighted like any chess of its tier, once the 调度中心 has reached the slot's shopLevel (activity_table
@@ -31,7 +29,7 @@
 //     min(shopLevel + 1, 6): a tier-5 自选 piece can appear when the 调度中心 reaches 4, a tier-6 piece when it reaches
 //     5, one shop level before the ordinary shop. 卫戍协议/帮助 干员晋升 names that refresh and no second pool; the owner
 //     decided on 2026-10-12 that it includes 自选 of the newly reached tier. 0.2.0 had [ASSUMED] the shop-level gate
-//     for this refresh too (DESIGN §25); §30.23 reverses it. A piece is not guaranteed. Banned slots and `left <= 0`
+//     for this refresh too (DESIGN §25); §30.23 reverses it. A piece is not guaranteed. Empty slots and `left <= 0`
 //     stay out. Explicit-id offers do not use this draw.
 //   * random grants (diyStockEntries, 0.2.0 WE2 #9): an effect, reward or 机变 card that grants this player a random
 //     operator from the pool draws its stock too — 「自选干员放入后模拟中的补给池随机范围也将被相应扩大」 (bilibili), "调度中心
@@ -179,18 +177,16 @@ export class PlayerDiy {
   }
 
   /**
-   * The stock of each slotted DIY piece (see the header), once the match has drawn its bans: `off` = the bonds switched
-   * off this match (drawn + the mode's static list). A piece all of whose bonds are off gets none (`diyBanned`).
-   * @param {Set<string>} off
+   * The stock of each slotted DIY piece, independent of this match's disabled bonds.
    */
-  initDiyStock(off = new Set()) {
-    const { stock, banned } = this.buildDiyStock(off);
+  initDiyStock() {
+    const { stock, banned } = this.buildDiyStock();
     this.diyStock = stock;
     this.diyBanned = banned;
   }
 
   /** Prepare stock without mutating this player, so setup rerolls can commit all players together. */
-  buildDiyStock(off = new Set()) {
+  buildDiyStock() {
     const stock = new DiyStock();
     const banned = [];
     const gd = this.m.gd;
@@ -198,8 +194,6 @@ export class PlayerDiy {
       const rec = this._diyRecords.get(slotId);
       const slot = diySlot(slotId, gd.raw);
       if (!rec || !slot) continue;
-      const bonds = Array.isArray(rec.bonds) ? rec.bonds : [];
-      if (bonds.length > 0 && bonds.every((b) => off.has(b))) { banned.push(slotId); continue; }
       const cap = gd.poolCopies(slotId);
       if (!(cap > 0)) continue;
       stock.entries.set(slotId, { cap, left: cap, tier: gd.tierOf(slotId), shopLevel: slot.shopLevel });

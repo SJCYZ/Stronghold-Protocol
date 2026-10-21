@@ -427,7 +427,7 @@ export function restoreMatch(m, doc, { createRngFromState, log = console, bestEf
     ps.setNotOwned(ps.standIns || []);
     ps.setDiy(ps.diy || {});
     ps.setSkins(ps.isBot ? null : { ...(ps.skins || {}), ...(ps.operatorSkins || {}) }); // old checkpoints: chess-id choices only
-    ps.initDiyStock(new Set([...(m.disabledBonds || []), ...(m.staticInactiveBonds || [])]));
+    ps.initDiyStock();
     if (stockEntries instanceof Map) for (const [id, saved] of stockEntries) {
       const entry = ps.diyStock.entries.get(id);
       const balance = Number(saved.left);

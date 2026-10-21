@@ -58,6 +58,15 @@ test('skin art and minimum height scale with the local design unit instead of re
   assert.match(style('.lo-skins', true)['grid-template-columns'], /minmax\(min\(100%, calc\(1\.5 \* var\(--ui-unit\)/);
 });
 
+test('short landscape plugin skin media rules do not contain the base loadout deck', () => {
+  const shortLandscape = desktop.nodes.find((node) => node.type === 'atrule' && node.params === '(max-width: 1000px) and (max-height: 520px)');
+  assert.ok(shortLandscape, 'the compact plugin skin layout remains available for short landscape screens');
+  assert.ok(desktop.nodes.some((node) => node.type === 'rule' && node.selector === '.lo--deck'), 'the base deck layout must apply at ordinary viewport sizes');
+  shortLandscape.walkRules((rule) => {
+    assert.match(rule.selector, /^\.lo-skins--plugin(?:\s|\.|#|:|,|$)/, 'only plugin skin rules belong in the short landscape media query');
+  });
+});
+
 test('compact picker keeps skin names, series, selection semantics and full-label tooltips', () => {
   const source = read('public/js/ui/skinPicker.js');
   assert.match(source, /const title = isDefault \? t\(/);

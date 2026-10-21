@@ -759,6 +759,7 @@
   .lo-skins--plugin .lo-skin__art { aspect-ratio: 1 / 1; min-height: 0; }
   .lo-skins--plugin .lo-skin__art--face > .lo-skin__art--big { display: none; }
   .lo-skins--plugin .lo-skin__art--face > .lo-skin__art--faceimg { display: block; }
+}
 /* ==========================================================================================
    物资调配处 deck (2026-10-13, the owner's request; js/screens/loadout.js DeckView / OpCard / ItemCodex / DeckBar):
    the 干员调配 tab's default view — tier groups of cards scrolling sideways, a bottom bar (干员 / 道具, tier jumps),
@@ -988,5 +989,4 @@
 .lo.is-leaving > * { animation: tr-out 140ms ease-in forwards; }
 @media (prefers-reduced-motion: reduce) {
   .lo, .lo *, .own *, .diy * { animation-delay: 0ms !important; }
-}
 }

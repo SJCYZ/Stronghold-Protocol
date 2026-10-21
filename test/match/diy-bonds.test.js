@@ -30,7 +30,7 @@ function soloMatch() {
 function slot(h, picks) {
   const p0 = h.ps('p_0');
   assert.equal(p0.setDiy(picks, { kitted: [...KITTED_CHARS, HUANG, CROSLY] }), true);
-  p0.initDiyStock(new Set());
+  p0.initDiyStock();
   p0.recompute();
   return p0;
 }

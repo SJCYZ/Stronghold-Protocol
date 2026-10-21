@@ -183,9 +183,9 @@ export class PlayerState {
     this.diy = Object.freeze({});
     /** @type {Map<string, object>} slot id (normal / elite) → composed 自选 record (setDiy) */
     this._diyRecords = new Map();
-    /** the copies of the slotted pieces (initDiyStock, once the match's bans are drawn) */
+    /** the copies of the slotted pieces (initDiyStock, independent of match bans) */
     this.diyStock = new DiyStock();
-    /** slotted slots without stock: every bond of the operator is switched off this match */
+    /** Kept in m.private for compatibility; current matches leave every self-selected slot in stock. */
     this.diyBanned = Object.freeze([]);
     // A modded room's content list (Match.diyKitted) is what the lobby already accepted. Without it setDiy
     // keeps the vanilla kit list and drops a plugin operator with no error (checkDiyPicks is lenient).

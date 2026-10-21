@@ -54,7 +54,7 @@ test('four humans must agree; rerolls the entire official setup and stock, prese
   const rngs = [m.rngSetup, m.rngShop, m.rngDraft, m.rngWaves, m.rngBots, m.rngMeta].map((r) => [r, r.state()]);
   const p0 = h.ps('p_0');
   assert.equal(p0.setDiy({ chess_char_5_diy1_a: { charId: 'char_017_huang', skillIndex: 0 } }), true);
-  p0.initDiyStock(new Set([...m.disabledBonds, ...m.staticInactiveBonds]));
+  p0.initDiyStock();
   const settings = [p0.loadout, p0.standIns, p0.diy];
   const stock = p0.diyStock;
   m.handle('p_1', { t: 'g.infoReady' });
@@ -83,10 +83,9 @@ test('four humans must agree; rerolls the entire official setup and stock, prese
   assert.deepEqual([p0.loadout, p0.standIns, p0.diy], settings);
   assert.equal(p0.diy, settings[2]);
   assert.notEqual(p0.diyStock, stock);
-  const off = new Set([...bans.drawn, ...bans.staticOff]);
   const diy = p0.gd.chess('chess_char_5_diy1_a');
-  assert.equal(p0.diyBanned.includes(diy.chessId), diy.bonds.every((b) => off.has(b)));
-  assert.equal(p0.diyStock.has(diy.chessId), !p0.diyBanned.includes(diy.chessId));
+  assert.deepEqual(p0.diyBanned, [], 'self-selected operators are not removed by rerolled bond bans');
+  assert.ok(p0.diyStock.has(diy.chessId));
   for (const [r, state] of rngs) assert.equal(r.state(), state);
   for (const id of m.gd.visibleChess) assert.equal(m.pool.has(id), !bans.banned.includes(id));
   assert.ok(m.order.every((p) => !p.infoReady));

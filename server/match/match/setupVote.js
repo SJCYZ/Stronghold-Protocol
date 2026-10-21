@@ -88,8 +88,7 @@ export class MatchSetupVote {
       const operatorPools = new Map(this.variant
         ? this.order.map((ps) => [ps.playerId, new SharedPool(this.gd, { banned: bans.banned })])
         : []);
-      const off = new Set([...bans.drawn, ...bans.staticOff]);
-      const stocks = this.order.map((ps) => ps.buildDiyStock(off));
+      const stocks = this.order.map((ps) => ps.buildDiyStock());
       prepared = { setup, stage, bans, pool, operatorPools, stocks };
     } catch (e) {
       this.reportError('reroll setup', e);
