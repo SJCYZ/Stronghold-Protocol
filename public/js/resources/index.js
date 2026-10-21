@@ -137,7 +137,7 @@ export function resourceContext() {
     const reason = unsupportedReason();
     if (reason) return { unsupported: reason }; // no point in asking for a list this browser cannot store
     let res;
-    const signal = typeof AbortSignal?.timeout === 'function' ? AbortSignal.timeout(10000) : undefined;
+    const signal = typeof AbortSignal?.timeout === 'function' ? AbortSignal.timeout(30000) : undefined;
     try {
       // Revalidate the HTTP cache on every page load. On a wire-level 304 the browser supplies the cached JSON body.
       res = await fetch(MANIFEST_URL, { cache: 'no-cache', signal });

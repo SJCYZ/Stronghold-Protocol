@@ -30,8 +30,8 @@ const MANIFEST = { format: 1, version: 'testversion', count: FILES.length, tier1
   totalBytes: 22, files: FILES };
 
 function stubEnv({ manifest = MANIFEST, failCount = 0, secure = true } = {}) {
-  const calls = { fetch: [], registered: [] };
-  const saved = Object.fromEntries(['fetch', 'caches', 'navigator', 'isSecureContext', 'location']
+  const calls = { fetch: [], fetchOptions: [], manifestTimeoutMs: null, registered: [] };
+  const saved = Object.fromEntries(['AbortSignal', 'fetch', 'caches', 'navigator', 'isSecureContext', 'location']
     .map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
   const restore = () => {
     for (const key of Object.keys(saved)) {
@@ -40,14 +40,18 @@ function stubEnv({ manifest = MANIFEST, failCount = 0, secure = true } = {}) {
     }
   };
   const caches = new MemoryCaches();
+  Object.defineProperty(globalThis, 'AbortSignal', { value: {
+    timeout(ms) { calls.manifestTimeoutMs = ms; return undefined; },
+  }, configurable: true, writable: true });
   Object.defineProperty(globalThis, 'isSecureContext', { value: secure, configurable: true, writable: true });
   Object.defineProperty(globalThis, 'location', { value: { origin: ORIGIN }, configurable: true, writable: true });
   Object.defineProperty(globalThis, 'caches', { value: caches, configurable: true, writable: true });
   Object.defineProperty(globalThis, 'navigator', { value: {
     serviceWorker: { async register(url, opts) { calls.registered.push([url, opts]); return { scope: '/' }; } },
   }, configurable: true, writable: true });
-  Object.defineProperty(globalThis, 'fetch', { value: async (url) => {
+  Object.defineProperty(globalThis, 'fetch', { value: async (url, options) => {
     calls.fetch.push(url);
+    calls.fetchOptions.push(options);
     if (url === MANIFEST_URL) {
       if (failCount-- > 0) return new Response('unavailable', { status: 503 });
       return Response.json(manifest);
@@ -65,6 +69,7 @@ test('resource check fetches the manifest only and never fills missing files or 
   await mod.syncResources(true);
   await mod.startResources();
   assert.deepEqual(env.calls.fetch, [MANIFEST_URL]);
+  assert.equal(env.calls.manifestTimeoutMs, 30000, 'the dynamically generated checklist gets a 30-second response window');
   assert.equal(mod.resourceState().phase, 'incomplete');
   assert.equal(mod.resourceState().done, 0);
   assert.match(mod.resourceState().message, /导入资源包/);
