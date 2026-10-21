@@ -12,9 +12,8 @@
 //               seq so a newer emote replaces the old one and pops again, and passes the arrival time (`at`) so a
 //               bubble mounted late resumes its timeline instead of restarting it.
 //   EmoteWheel  bottom-left 交流 button (official emoji_btn / emoji_btn_disable) + panel (emoji_bkg): one page per theme
-//               with 3×2 cells (emoji_cell_bkg), pager dots, swipe / drag / arrow keys / wheel to change the page (the
-//               wheel turns one page per gesture, a plain vertical mouse wheel included, like Unity's ScrollRect). The
-//               panel reopens on the theme of the last emote sent (localStorage). Sending closes the panel and greys
+//               with 3×2 cells (emoji_cell_bkg), pager dots, arrow keys and buttons to change the page. The panel
+//               reopens on the theme of the last emote sent (localStorage). Sending closes the panel and greys
 //               the button for the 1 s cooldown (chatCD), counted from the send so a remount keeps it.
 // Official UI sprites come from the local ui/battle extraction when present; CSS draws look-alikes otherwise.
 // Styles: public/css/emotes.css (injected on first use when the page does not link it).
@@ -32,10 +31,6 @@ const cx = (...p) => p.flat().filter(Boolean).join(' ');
 
 export const EMOTE_CSS_HREF = '/css/emotes.css';
 const PREF_THEME = 'emoteTheme';
-const SWIPE_PX = 40;      // horizontal drag distance that turns the page
-const DRAG_SLOP_PX = 8;   // below this a press is a tap, not a drag
-export const WHEEL_STEP_PX = 60;  // wheel / trackpad scroll that turns the page
-export const WHEEL_GAP_MS = 180;  // a pause this long ends a wheel gesture (a trackpad's momentum tail included)
 
 // Time of the last send, shared by every wheel on the page: the 1 s cooldown survives a remount of the wheel (the
 // server enforces chatCD too and silently drops an emote sent early).
@@ -96,46 +91,6 @@ export function rememberTheme(themeId) {
 
 /** Clamp a page index into the wheel. */
 export const clampPage = (i) => Math.max(0, Math.min(EMOTE_THEMES.length - 1, Math.trunc(Number(i)) || 0));
-
-/**
- * Page change for a finished horizontal drag / swipe: -1 (previous), +1 (next) or 0.
- * @param {number} dx pointer travel in px (negative = leftwards = next page)
- * @param {number} [threshold]
- */
-export const swipeStep = (dx, threshold = SWIPE_PX) => (dx <= -threshold ? 1 : dx >= threshold ? -1 : 0);
-
-/**
- * Scroll distance of a wheel event along the pager, in px. Like Unity's horizontal-only ScrollRect, a mostly vertical
- * wheel (a plain mouse wheel) drives the horizontal pager too: down / right = next page.
- * @param {{ deltaX?: number, deltaY?: number, deltaMode?: number }} e
- * @param {number} [pagePx] px per "page" delta (deltaMode 2)
- */
-export function wheelDelta(e, pagePx = 300) {
-  const x = Number(e?.deltaX) || 0;
-  const y = Number(e?.deltaY) || 0;
-  const d = Math.abs(x) >= Math.abs(y) ? x : y;
-  const unit = e?.deltaMode === 1 ? 16 : e?.deltaMode === 2 ? pagePx : 1; // lines / pages → px
-  return d * unit;
-}
-
-/**
- * Wheel / trackpad paging, at most one page per gesture. A gesture is a run of wheel events less than WHEEL_GAP_MS
- * apart; once it has turned the page the rest of it (the momentum tail of a trackpad swipe) is ignored, so one swipe
- * never skips several themes.
- * @param {{ x: number, t: number, spent: boolean }} acc gesture state (mutated)
- * @param {number} d scroll distance of this event (wheelDelta)
- * @param {number} now event time (ms)
- * @returns {-1|0|1} page change
- */
-export function wheelStep(acc, d, now) {
-  if (!(now - acc.t < WHEEL_GAP_MS) || now < acc.t) { acc.x = 0; acc.spent = false; } // a new gesture
-  acc.t = now;
-  if (acc.spent || !d) return 0;
-  acc.x += d;
-  if (Math.abs(acc.x) < WHEEL_STEP_PX) return 0;
-  acc.spent = true;
-  return acc.x > 0 ? 1 : -1;
-}
 
 /**
  * Cooldown left (ms) of the 交流 button after a send at `sentAt` (chatCD).
@@ -216,7 +171,6 @@ export function EmoteWheel({ onSend, onChat, history = [], myId, open, onToggle,
   useEffect(() => { ensureEmoteCss(); }, []);
   const [page, setPage] = useState(lastThemeIndex);
   const [dir, setDir] = useState(0);          // direction of the last page change (slide-in animation)
-  const [dx, setDx] = useState(0);            // live drag offset (px)
   const [cooling, setCooling] = useState(() => cooldownLeft(lastSentAt, Date.now(), cooldownMs) > 0);
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
@@ -224,9 +178,6 @@ export function EmoteWheel({ onSend, onChat, history = [], myId, open, onToggle,
   const composing = useRef(false);
   const pendingChat = useRef(false);
   const chatInput = useRef(null);
-  const drag = useRef(null);                  // { id, x0, moved }
-  const swallowClick = useRef(false);
-  const wheelAcc = useRef({ x: 0, t: -Infinity, spent: false });
   const live = useRef({});
   live.current = { page, onToggle, chatView };
 
@@ -240,7 +191,7 @@ export function EmoteWheel({ onSend, onChat, history = [], myId, open, onToggle,
 
   // reopen on the last used theme
   useEffect(() => {
-    if (open) { setPage(lastThemeIndex()); setDir(0); setDx(0); setChatView('emotes'); }
+    if (open) { setPage(lastThemeIndex()); setDir(0); setChatView('emotes'); }
   }, [open]);
 
   // cooldown: the button is greyed for chatCD after a send (from the send time, so a remounted wheel keeps it)
@@ -270,7 +221,6 @@ export function EmoteWheel({ onSend, onChat, history = [], myId, open, onToggle,
   }, [open]);
 
   const send = (id) => {
-    if (swallowClick.current) { swallowClick.current = false; return; }
     const e = emoteInfo(id);
     const now = Date.now();
     if (!e || cooling || disabled || pendingChat.current || cooldownLeft(lastSentAt, now, cooldownMs) > 0) return;
@@ -304,40 +254,6 @@ export function EmoteWheel({ onSend, onChat, history = [], myId, open, onToggle,
     }
   };
 
-  // swipe / drag (touch, pen and mouse)
-  const onPointerDown = (e) => {
-    if (e.button != null && e.button !== 0) return;
-    drag.current = { id: e.pointerId, x0: e.clientX, moved: false };
-    swallowClick.current = false;
-  };
-  const onPointerMove = (e) => {
-    const d = drag.current;
-    if (!d || d.id !== e.pointerId) return;
-    if (e.pointerType === 'mouse' && !(e.buttons & 1)) { drag.current = null; setDx(0); return; } // released outside
-    const off = e.clientX - d.x0;
-    if (!d.moved && Math.abs(off) < DRAG_SLOP_PX) return;
-    if (!d.moved) { d.moved = true; try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* ignore */ } }
-    const edge = (off > 0 && live.current.page === 0) || (off < 0 && live.current.page === EMOTE_THEMES.length - 1);
-    setDx(edge ? off / 3 : off); // rubber band at the first / last page
-  };
-  const endDrag = (e, cancelled) => {
-    const d = drag.current;
-    if (!d || d.id !== e.pointerId) return;
-    drag.current = null;
-    if (!d.moved) return;
-    swallowClick.current = true;               // the click that follows a drag is not a send
-    setTimeout(() => { swallowClick.current = false; }, 0);
-    setDx(0);
-    if (!cancelled) { const step = swipeStep(e.clientX - d.x0); if (step) go(live.current.page + step); }
-  };
-  const onWheel = (e) => {
-    const d = wheelDelta(e, e.currentTarget?.clientWidth || 300);
-    if (!d) return;
-    e.preventDefault();
-    const step = wheelStep(wheelAcc.current, d, performance.now());
-    if (step) go(live.current.page + step);
-  };
-
   const theme = EMOTE_THEMES[clampPage(page)];
   const btnSprite = emoteUiSprite(disabled || cooling ? 'emoji_btn_disable' : 'emoji_btn');
   const panelBg = emoteUiSprite('emoji_bkg');
@@ -365,10 +281,9 @@ export function EmoteWheel({ onSend, onChat, history = [], myId, open, onToggle,
     <div class="ewheel__compose">
     <div class=${cx('ewheel__panel', panelBg && 'has-sprite', cellBg && 'has-cell')} style=${panelStyle}
       hidden=${!!onChat && chatView !== 'emotes'}>
-      <div class="ewheel__viewport" onPointerDown=${onPointerDown} onPointerMove=${onPointerMove}
-        onPointerUp=${(e) => endDrag(e, false)} onPointerCancel=${(e) => endDrag(e, true)} onWheel=${onWheel}>
-        <div key=${theme.themeId} class=${cx('ewheel__page', dir > 0 && 'is-from-right', dir < 0 && 'is-from-left', dx !== 0 && 'is-dragging')}
-          style=${dx ? `transform:translateX(${dx}px)` : ''} role="group" aria-label=${t(theme.name)} data-theme=${theme.themeId}>
+      <div class="ewheel__viewport">
+        <div key=${theme.themeId} class=${cx('ewheel__page', dir > 0 && 'is-from-right', dir < 0 && 'is-from-left')}
+          role="group" aria-label=${t(theme.name)} data-theme=${theme.themeId}>
           ${theme.emotes.map((e) => html`<button key=${e.id} type="button" class="ewheel__item" data-emote=${e.id} aria-label=${t(e.label)}
               disabled=${cooling || disabled || sending} onClick=${() => send(e.id)}>
             <${EmoteArt} id=${e.id} />

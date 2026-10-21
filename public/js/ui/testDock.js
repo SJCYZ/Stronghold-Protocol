@@ -3,7 +3,7 @@
 //
 // Default home, in rem, then × the layout root (css/theme.css: clamp(40px, min(100vw/19.2, 100svh/10.8), 240px)):
 //   x = teamRight + margin
-//       teamRight = .team left .22 + avatar .8 + gap .1 + name max-width 1.5 + info padding .06+.12
+//       teamRight = .team left .14 + the widened team panel 4.2
 //   y = max(bondBottom, topBar) + margin
 //       bondBottom = fieldHost.js HUD_REM.bondStripBottom (2.16)
 //       topBar = the bottom of .gtop (1.02)
@@ -22,7 +22,7 @@ export const DOCK_REM = Object.freeze({
   width: 3.6,
   margin: 0.08,
   teamLeft: 0.22,
-  teamRight: 2.8,
+  teamRight: 4.34,
   teamTop: 2.36,
   teamAvatar: 0.8,
   teamGap: 0.14,

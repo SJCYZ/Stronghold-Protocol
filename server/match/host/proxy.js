@@ -135,11 +135,10 @@ export class MatchProxy {
   onReconnect(playerId) { this._notify('onReconnect', [playerId]); }
   onLeave(playerId) { this._notify('onLeave', [playerId]); }
   /**
-   * Host migration. A normal plugin match never posted setHost (the proxy had no such method, so lobby
-   * callMatch no-op'd). Only a test match follows the new host, because g.test checks hostId in the worker.
+   * Host migration for test matches and rooms that enabled the combat-speed plugin.
    */
   setHost(playerId) {
-    if (this.opts.test !== true) return;
+    if (this.opts.test !== true && this.opts.hostSpeedEnabled !== true) return;
     this.opts.hostId = typeof playerId === 'string' ? playerId : null;
     this._notify('setHost', [playerId]);
   }

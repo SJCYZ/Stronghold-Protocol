@@ -2,7 +2,7 @@
 // the UI-kit demo (/dev/uikit.html §13) and the in-match mock harness (/dev/game-mock.html). Opt-in like the other
 // browser suites: SP_E2E=1 node --test test/ui/emotes.e2e.test.js   → screenshots in test/e2e/out/emotes-*.png
 //
-// Asserted: picture-only wheel pages (3×2 per theme) and bubbles (no text anywhere), swipe / arrow keys / dots change
+// Asserted: picture-only wheel pages (3×2 per theme) and bubbles (no text anywhere), buttons / arrow keys / dots change
 // the theme, sending closes the panel and greys 交流 for the 1 s cooldown, the panel reopens on the last-used theme,
 // a bubble fades out after 3 s and a newer one replaces it, the neutral glyph fallback when the art is missing, the
 // bubble sits beside the sender's avatar in the team panel, and zero console errors.
@@ -87,7 +87,7 @@ describe('official emotes in the browser', { skip: !ENABLED && 'set SP_E2E=1 (an
     };
   }, root);
 
-  test('UI kit: pager per theme, picture-only, swipe / keys / dots, cooldown, remembered theme, 3 s bubble', { skip: !HAS_ART && 'no official emote art (neither the local extraction nor the fetched copies)' }, async () => {
+  test('UI kit: pager per theme, picture-only, buttons / keys / dots, cooldown, remembered theme, 3 s bubble', { skip: !HAS_ART && 'no official emote art (neither the local extraction nor the fetched copies)' }, async () => {
     const { page, problems } = await open('/dev/uikit.html');
     await page.evaluate(() => localStorage.removeItem('sp.pref.emoteTheme'));
     await page.reload({ waitUntil: 'networkidle0' });
@@ -104,25 +104,12 @@ describe('official emotes in the browser', { skip: !ENABLED && 'set SP_E2E=1 (an
     assert.equal(await page.$$eval('.emo-cat img', (els) => els.filter((i) => i.complete && i.naturalWidth > 0).length), 36, 'all 36 pictures load');
     await section.screenshot({ path: path.join(OUT, 'emotes-uikit.png') });
 
-    // swipe left → next theme (mouse drag across the pager)
-    const box = await (await page.$('#emo-stage .ewheel__viewport')).boundingBox();
-    const y = box.y + box.height / 2;
-    await page.mouse.move(box.x + box.width * 0.8, y);
-    await page.mouse.down();
-    for (let i = 1; i <= 8; i++) { await page.mouse.move(box.x + box.width * (0.8 - i * 0.08), y); await sleep(16); }
-    await page.mouse.up();
+    await page.click('#emo-stage .ewheel__nav.is-next');
     await sleep(250);
     s = await wheelState(page, '#emo-stage');
-    assert.equal(s.theme, EMOTE_THEMES[1].themeId, 'swipe → next page');
-    assert.equal(s.open, true, 'a drag is not a send');
-    // a short drag is ignored
-    await page.mouse.move(box.x + box.width * 0.5, y);
-    await page.mouse.down();
-    await page.mouse.move(box.x + box.width * 0.5 - 20, y, { steps: 3 });
-    await page.mouse.up();
-    await sleep(150);
-    assert.equal((await wheelState(page, '#emo-stage')).theme, EMOTE_THEMES[1].themeId);
-    // swipe right at the first page does nothing beyond the edge
+    assert.equal(s.theme, EMOTE_THEMES[1].themeId, 'button → next page');
+    assert.equal(s.open, true);
+    // arrow keys clamp at the first page
     await page.keyboard.press('ArrowLeft');
     await page.keyboard.press('ArrowLeft');
     await sleep(200);
@@ -170,7 +157,7 @@ describe('official emotes in the browser', { skip: !ENABLED && 'set SP_E2E=1 (an
     await page.close();
   });
 
-  test('wheel: one trackpad swipe (momentum included) turns one page, a mouse-wheel notch turns one page', { skip: !HAS_ART && 'no official emote art (neither the local extraction nor the fetched copies)' }, async () => {
+  test('pager buttons change theme; wheel input does not scroll the pager', { skip: !HAS_ART && 'no official emote art (neither the local extraction nor the fetched copies)' }, async () => {
     const { page, problems } = await open('/dev/uikit.html');
     await page.evaluate(() => localStorage.removeItem('sp.pref.emoteTheme'));
     await page.reload({ waitUntil: 'networkidle0' });
@@ -179,25 +166,17 @@ describe('official emotes in the browser', { skip: !ENABLED && 'set SP_E2E=1 (an
     await sleep(300);
     const idx = async () => EMOTE_THEMES.map((t) => t.themeId).indexOf((await wheelState(page, '#emo-stage')).theme);
     assert.equal(await idx(), 0);
-    // a macOS trackpad swipe: 60 wheel events 16 ms apart with a decaying deltaX (≈ 750 px) — v1 skipped to the last theme
-    await page.evaluate(async () => {
-      const vp = document.querySelector('#emo-stage .ewheel__viewport');
-      for (let i = 0; i < 60; i++) {
-        vp.dispatchEvent(new WheelEvent('wheel', { deltaX: Math.max(2, 40 * 0.95 ** i), deltaY: 0, bubbles: true, cancelable: true }));
-        await new Promise((r) => setTimeout(r, 16));
-      }
-    });
-    await sleep(350);
-    assert.equal(await idx(), 1, 'one swipe = one theme');
-    // a plain mouse wheel drives the horizontal pager (Unity ScrollRect): down = next, up = previous
     const box = await (await page.$('#emo-stage .ewheel__viewport')).boundingBox();
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
     await page.mouse.wheel({ deltaY: 100 });
     await sleep(350);
-    assert.equal(await idx(), 2, 'wheel down → next theme');
-    await page.mouse.wheel({ deltaY: -100 });
+    assert.equal(await idx(), 0, 'wheel input does not change themes');
+    await page.click('#emo-stage .ewheel__nav.is-next');
     await sleep(350);
-    assert.equal(await idx(), 1, 'wheel up → previous theme');
+    assert.equal(await idx(), 1, 'the next button changes themes');
+    await page.click('#emo-stage .ewheel__nav.is-prev');
+    await sleep(350);
+    assert.equal(await idx(), 0, 'the previous button changes themes');
     assert.equal((await wheelState(page, '#emo-stage')).open, true);
     // hover over an official cell (emoji_cell_bkg: rounded, transparent corners) brightens it, never fills its square box
     const cell = await (await page.$('#emo-stage .ewheel__item:nth-child(2)')).boundingBox();
@@ -268,7 +247,7 @@ describe('official emotes in the browser', { skip: !ENABLED && 'set SP_E2E=1 (an
     await page.close();
   });
 
-  test('touch: a horizontal swipe on the pager turns the page, a tap sends', { skip: !HAS_ART && 'no official emote art (neither the local extraction nor the fetched copies)' }, async () => {
+  test('touch swipe does not change page; a tap sends an emote', { skip: !HAS_ART && 'no official emote art (neither the local extraction nor the fetched copies)' }, async () => {
     const { page, problems } = await open('/dev/uikit.html');
     await page.setViewport({ width: 1280, height: 720, hasTouch: true, isMobile: false });
     await page.evaluate(() => localStorage.removeItem('sp.pref.emoteTheme'));
@@ -283,14 +262,14 @@ describe('official emotes in the browser', { skip: !ENABLED && 'set SP_E2E=1 (an
     await page.touchscreen.touchEnd();
     await sleep(250);
     let s = await wheelState(page, '#emo-stage');
-    assert.equal(s.theme, EMOTE_THEMES[1].themeId, 'swipe left → next theme');
+    assert.equal(s.theme, EMOTE_THEMES[0].themeId, 'touch swipe does not change themes');
     assert.equal(s.open, true);
     const cell = await (await page.$('#emo-stage .ewheel__item:nth-child(4)')).boundingBox();
     await page.touchscreen.tap(cell.x + cell.width / 2, cell.y + cell.height / 2);
     await sleep(200);
     s = await wheelState(page, '#emo-stage');
     assert.equal(s.open, false, 'tap sends and closes');
-    assert.equal(await page.$eval('.emo-row .ebubble', (b) => b.dataset.emote), EMOTE_THEMES[1].emotes[3].id);
+    assert.equal(await page.$eval('.emo-row .ebubble', (b) => b.dataset.emote), EMOTE_THEMES[0].emotes[3].id);
     assert.deepEqual(problems, []);
     await page.close();
   });

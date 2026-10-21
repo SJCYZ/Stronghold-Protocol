@@ -267,10 +267,9 @@ describe('public/js/ui/emotes.js helpers', () => {
     }
   });
 
-  test('pager helpers: clamp, swipe threshold, remembered theme', async () => {
-    const { clampPage, swipeStep, themeIndex, lastThemeIndex, rememberTheme } = await import('../../public/js/ui/emotes.js');
+  test('pager helpers: clamp, remembered theme', async () => {
+    const { clampPage, themeIndex, lastThemeIndex, rememberTheme } = await import('../../public/js/ui/emotes.js');
     assert.deepEqual([clampPage(-3), clampPage(2), clampPage(99), clampPage('x'), clampPage(2.7)], [0, 2, 5, 0, 2]);
-    assert.deepEqual([swipeStep(-60), swipeStep(60), swipeStep(-10), swipeStep(0), swipeStep(-40)], [1, -1, 0, 0, 1]);
     assert.equal(themeIndex('emoticon_foolsday_amiya'), 4);
     assert.equal(themeIndex('nope'), 0);
     store.clear();
@@ -283,41 +282,6 @@ describe('public/js/ui/emotes.js helpers', () => {
     assert.equal(lastThemeIndex(), 0, 'a stale theme falls back to the first page');
     store.set('sp.pref.emoteTheme', '{bad json');
     assert.equal(lastThemeIndex(), 0);
-  });
-
-  test('wheel paging: one page per gesture — a trackpad swipe\'s momentum tail never skips themes', async () => {
-    const { wheelStep, wheelDelta, WHEEL_GAP_MS, WHEEL_STEP_PX } = await import('../../public/js/ui/emotes.js');
-    // one macOS trackpad swipe: 60 events 16 ms apart, decaying deltaX (≈ 750 px in total)
-    const acc = { x: 0, t: -Infinity, spent: false };
-    let t = 1000;
-    const swipe = (sign) => {
-      const steps = [];
-      for (let i = 0; i < 60; i++, t += 16) steps.push(wheelStep(acc, sign * Math.max(2, 40 * 0.95 ** i), t));
-      return steps.filter(Boolean);
-    };
-    assert.deepEqual(swipe(1), [1], 'the whole swipe turns exactly one page');
-    t += WHEEL_GAP_MS - 20;
-    assert.deepEqual(swipe(1), [], 'a tail that continues without a pause is still the same gesture');
-    t += WHEEL_GAP_MS + 1;
-    assert.deepEqual(swipe(-1), [-1], 'a new gesture after a pause turns the page again (backwards)');
-    // mouse wheel notches (100 px) with pauses: one page per notch; small deltas accumulate
-    t += 1000;
-    assert.equal(wheelStep(acc, 100, t), 1);
-    t += 400;
-    assert.equal(wheelStep(acc, 100, t), 1);
-    t += 400;
-    assert.equal(wheelStep(acc, WHEEL_STEP_PX / 2, t), 0);
-    assert.equal(wheelStep(acc, WHEEL_STEP_PX / 2, t + 16), 1);
-    assert.equal(wheelStep(acc, 0, t + 1000), 0);
-    assert.equal(wheelStep({ x: 0, t: 5000, spent: true }, 100, 10), 1, 'a clock that went backwards starts a new gesture');
-    // Unity ScrollRect rule: a mostly vertical wheel drives the horizontal pager (down = next); lines / pages → px
-    assert.equal(wheelDelta({ deltaX: 0, deltaY: 100 }), 100);
-    assert.equal(wheelDelta({ deltaX: 0, deltaY: -100 }), -100);
-    assert.equal(wheelDelta({ deltaX: 30, deltaY: 10 }), 30);
-    assert.equal(wheelDelta({ deltaX: 0, deltaY: 3, deltaMode: 1 }), 48);
-    assert.equal(wheelDelta({ deltaX: 1, deltaY: 0, deltaMode: 2 }, 271), 271);
-    assert.equal(wheelDelta({}), 0);
-    assert.equal(wheelDelta(null), 0);
   });
 
   test('cooldown and bubble timelines are computed from timestamps (robust to remounts and clock jumps)', async () => {

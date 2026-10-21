@@ -8,7 +8,7 @@
 /* ---- screen shell ---------------------------------------------------------------------------- */
 .gm { background: transparent; }
 /* Host test dock (public/js/ui/testDock.js DOCK_REM). Unitless rem, shared by the HUD and the dock.
-   team-right = .team left .22 + avatar .8 + gap .1 + name 1.5 + info padding .18.
+   team-right = .team left .14 + widened .team panel 4.2.
    bond-bottom = fieldHost.js HUD_REM.bondStripBottom. shop-top = HUD_REM.shopBarTop.
    hand-clear = prep hudPadding bottom 3.2 + the bench piece 1.56. top = bottom of .gtop.
    ready-h = .gtop padding .2 + clock --cd-h .7 + gap .1 + .readybtn .56. */
@@ -16,7 +16,7 @@
   --dock-w: 3.6;
   --dock-margin: 0.08;
   --dock-team-left: 0.22;
-  --dock-team-right: 2.8;
+  --dock-team-right: 4.34;
   --dock-team-top: 2.36;
   --dock-team-avatar: 0.8;
   --dock-team-gap: 0.14;
@@ -556,9 +556,9 @@
 
 /* ---- team panel ------------------------------------------------------------------------------------------- */
 .team {
-  position: absolute; left: .14rem; top: 2.28rem; box-sizing: border-box; max-height: calc(100% - 2.36rem);
-  display: flex; flex-direction: column; gap: .14rem; padding: .08rem .28rem .08rem .08rem;
-  overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; pointer-events: auto;
+  position: absolute; left: .14rem; top: 2.28rem; box-sizing: border-box; width: 4.2rem; max-height: calc(100% - 2.36rem);
+  display: flex; flex-direction: column; align-items: flex-start; gap: .14rem; padding: .08rem .28rem .08rem .08rem;
+  overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; pointer-events: auto;
 }
 .team__row { position: relative; display: flex; align-items: center; gap: .1rem; pointer-events: auto; }
 .team__btn {
