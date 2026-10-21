@@ -402,6 +402,7 @@ export function exportResources() {
 function transferArchive(kind, file) {
   cancelBackgroundCheck?.();
   if (transferPromise) return Promise.reject(new Error('资源包正在处理中'));
+  if (kind === 'import') runRevision++;
   // Stop a pending cache check before taking the shared archive lock.
   controller?.abort();
   archiveController = new AbortController();
@@ -410,6 +411,7 @@ function transferArchive(kind, file) {
     message: kind === 'import' ? t('正在准备导入资源包…') : t('正在准备导出资源包…'), error: false });
   transferPromise = (async () => {
     if (activeRun) await activeRun;
+    if (kind === 'import') contextPromise = null;
     const ctx = await resourceContext();
     if (!ctx.store) throw new Error(ctx.error || ctx.unsupported || '服务器没有可预载的资源');
     checkAbort(signal);
