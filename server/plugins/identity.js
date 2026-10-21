@@ -4,9 +4,8 @@
 //   /sim/      server/sim/**/*.js but nodeData.js (under any spelling), no dot file — server/http/static.js's rules
 //   /shared/   shared/**/*.js, no dot file
 //   /data.js   the browser stand-in of server/data.js (server/http/static.js DATA_SHIM_JS, passed in as `shim`)
-//   data/      every data/<name>.json that server/data.js loads, but the presentation files (PRESENTATION_DATA:
-//              assets — the art manifest —, local-assets / local-fx — this machine's extracted art and official
-//              effects —, emotes)
+//   data/      every data/<name>.json that server/data.js loads, but browser-only manifests (PRESENTATION_DATA) and
+//              resource-packs.json, which is not served because resource ZIP downloads are disabled
 //
 // Until rooms can choose gameplay plugins (P1c) it is the identity of every room — a room's cosmetic plugins change no
 // battle, so they leave it (DESIGN §32.3): welcome.content, room.state.content, /healthz
@@ -25,6 +24,7 @@ import { CONTENT_HASH_VERSION, contentHashOf, simHashOf } from '../../shared/plu
 
 /** data/*.json files that only the browser's presentation reads (never part of `cs`). */
 export const PRESENTATION_DATA = Object.freeze(['assets', 'local-assets', 'local-fx', 'emotes']);
+const NON_GAMEPLAY_DATA = new Set([...PRESENTATION_DATA, 'resource-packs']);
 /** server/sim files that are never served (lower-case; static.js SIM_PRIVATE). */
 const SIM_PRIVATE = new Set(['nodedata.js']);
 const noopLog = { info() {}, warn() {}, error() {}, debug() {} };
@@ -73,7 +73,8 @@ export function servedCodeFiles({ simDir, sharedDir }) {
 }
 
 /**
- * The data files of `cs`: the top-level `*.json` files server/data.js loads (plain files), but PRESENTATION_DATA.
+ * The data files of `cs`: the top-level `*.json` files server/data.js loads (plain files), but browser-only manifests
+ * and the resource-pack manifest, whose public route intentionally returns 404.
  * @param {string} dataDir
  * @returns {{ name: string, file: string, abs: string }[]} sorted by name
  */
@@ -83,7 +84,7 @@ export function gameplayDataFiles(dataDir) {
   return entries
     .filter((d) => d.isFile() && d.name.toLowerCase().endsWith('.json'))
     .map((d) => ({ name: d.name.slice(0, -'.json'.length), file: d.name, abs: path.join(dataDir, d.name) }))
-    .filter((f) => !PRESENTATION_DATA.includes(f.name))
+    .filter((f) => !NON_GAMEPLAY_DATA.has(f.name))
     .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
 }
 
