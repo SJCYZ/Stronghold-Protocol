@@ -31,7 +31,7 @@ import { data, useData } from '../data.js';
 import { FullscreenButton, PwaInstallButton, detectFeatures } from '../ui/device.js';
 import { updateSettings, useSettings } from '../ui/settings.js';
 import { LangToggle, useLang } from '../ui/lang.js';
-import { t, N_ } from '../../../shared/i18n.js';
+import { t, tParts, N_ } from '../../../shared/i18n.js';
 import { scriptOf } from '../../../shared/i18nPacks.js';
 import { SettingsModal } from '../ui/settings.js';
 import { ResourceLauncher } from '../ui/resourcePanel.js';
@@ -295,7 +295,7 @@ export function TitleScreen() {
           placeholder=${t('输入你的代号（最多 {NAME_MAX_LEN} 字）', { NAME_MAX_LEN })} autoFocus=${!touchUi}
           onInput=${setName} onEnter=${start} />
         <${Button} variant="primary" size="xl" block=${true} iconRight="chevrons" disabled=${!valid || !authReady || sharePending || serverFull} onClick=${start}>${t('开始')}<//>
-        <${Button} variant="secondary" size="lg" block=${true} icon="user" onClick=${() => { location.assign('/auth/wgs/start'); }}>${t('使用 Web Gerber 账号登录')}<//>
+        <${Button} variant="secondary" size="lg" block=${true} icon="user" onClick=${() => { location.assign('/auth/wgs/start'); }}>${tParts('使用{brand}账户登录', { brand: html`<strong>${t('罗德岛蚀刻艺术部')}</strong>` })}<//>
         <div class="title-share-entry">
           <${TextField} label=${t('单局分享码（访客）')} size="md" icon="key" value=${shareCode} maxLength=${128}
             placeholder=${t('粘贴创建者提供的单局分享码')} onInput=${setShareCode} onEnter=${() => submitShareCode(shareCode)} />
