@@ -17,6 +17,8 @@ public/fonts/
 # public/assets/ above). Downloaded bundles live in .cache/official-scenes/ (already ignored by .cache/ below).
 # The repository never stores those official files.
 data/local-assets.json
+# Per-deployment selection record written by tools/install-skins.mjs.
+data/skins-installed.json
 # tools/asset-hashes.mjs → per-file hashes of public/assets + public/fonts (ship it next to the manifests)
 data/asset-hashes.json
 data/resource-packs.json
