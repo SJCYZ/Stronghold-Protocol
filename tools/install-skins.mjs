@@ -47,10 +47,18 @@ const readJson = async (p) => JSON.parse(await readFile(p, 'utf8'));
  * player quits, the server is stopped), and a half-written data/assets.json is not a cosmetic problem — the
  * client reads it to resolve every model and avatar, so a truncated file means nothing renders at all.
  */
-async function writeJsonAtomic(file, value) {
+export async function writeJsonAtomic(file, value, { renameFile = rename, delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms)) } = {}) {
   const tmp = `${file}.tmp`;
   await writeFile(tmp, JSON.stringify(value));
-  await rename(tmp, file);
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      await renameFile(tmp, file);
+      return;
+    } catch (error) {
+      if (!['EPERM', 'EBUSY'].includes(error?.code) || attempt >= 4) throw error;
+      await delay(250 * (2 ** attempt));
+    }
+  }
 }
 
 /**

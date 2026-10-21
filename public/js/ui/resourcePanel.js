@@ -1,15 +1,11 @@
-// Compact entry points share one global resource manager; closing it leaves background downloads running.
+// Compact entry points share one global resource manager; checks only read the manifest and local cache.
 import { useEffect, useRef, useState } from '../../vendor/hooks.module.js';
 import { html, Button, MicroLabel, Modal, ProgressBar } from './components.js';
 import { createStore, useStore } from '../store.js';
-import { formatBytes, normalizePreloadVoiceLang, PRELOAD_VOICE_LANGS, resourcePackPercent } from '../resources/common.js';
+import { formatBytes } from '../resources/common.js';
 import { clearResources, exportResources, importResources, inspectResources, pauseResources,
   resourceState, startResources, subscribeResources } from '../resources/index.js';
-import { t, N_ } from '../../../shared/i18n.js';
-
-const PRELOAD_VOICE_LABELS = { cn: N_('中文语音'), jp: N_('日语语音'), en: N_('英语语音'), kr: N_('韩语语音') };
-
-const RESOURCE_DOWNLOAD_URL = 'https://t.bilibili.com/1256354225629167619';
+import { t } from '../../../shared/i18n.js';
 
 export function byteText(st) {
   if (Number.isFinite(st.selectedWanted)) {
@@ -45,7 +41,7 @@ export function percent(st) {
 const resourceUi = createStore({ open: false });
 export const openResources = () => resourceUi.set({ open: true });
 const closeResources = () => resourceUi.set({ open: false });
-const busy = (st) => !!st.archive || st.phase === 'download' || st.phase === 'checking';
+const busy = (st) => !!st.archive || st.phase === 'checking';
 
 function useResources() {
   const [state, setState] = useState(resourceState);
@@ -54,40 +50,39 @@ function useResources() {
 }
 
 function stateText(st, enabled) {
-  if (st.archive) return st.archive === 'import' ? t('正在导入') : t('正在导出');
+  if (st.archive) return st.archive === 'import' ? t('正在导入资源包') : t('正在导出资源包');
   if (enabled && st.combatPaused && !st.manualPaused) return t('战斗中暂停');
-  if (st.phase === 'foreign') return t('另一标签页处理中');
-  if (st.phase === 'error') return t('资源未完成，请继续下载');
+  if (st.phase === 'foreign') return t('另一标签页正在检查或导入');
+  if (st.phase === 'error') return t('清单检查失败');
   if (busy(st)) return t('处理中');
-  if (st.cacheVerified === false && st.selectionComplete && st.tier1Total) return t('缓存索引已读取');
-  if (st.complete) return t('全部已保存');
-  if (st.selectionComplete && st.tier1Total) return st.optional || st.skins ? t('所选资源已齐全。') : t('必备已保存');
-  return enabled ? t('已暂停') : t('未开启');
+  if (st.complete) return t('清单资源已齐全');
+  if (st.total) return t('缺少 {missing} 个资源', { missing: st.selectedMissing ?? Math.max(0, st.total - st.done) });
+  return enabled ? t('等待检查') : t('尚未检查');
 }
 
 export function ResourceRow({ enabled }) {
   const st = useResources();
   return html`<div class="set-res">
     <div class="set-row">
-      <span class="set-row__label">${t('预载资源')}<${MicroLabel}>PRELOAD<//></span>
+      <span class="set-row__label">${t('资源清单')}<${MicroLabel}>ASSETS<//></span>
       <${Button} variant="secondary" size="sm" icon="expand" onClick=${openResources}>${t('资源管理')}<//>
     </div>
-    <p class="set-hint">${stateText(st, enabled)} ${t('· 管理必备与可选资源，或导入、导出 ZIP 资源包。')}</p>
+    <p class="set-hint">${stateText(st, enabled)} ${t('· 检查本机资源，或导入、导出 ZIP 资源包。')}</p>
   </div>`;
 }
 
 export function ResourceLauncher({ enabled }) {
   const st = useResources();
   return html`<div class=${`res-pill${enabled ? ' is-on' : ''}`}>
-    <button type="button" class="res-pill__head" title=${t('管理预载资源和 ZIP 资源包')} onClick=${openResources}>
-      <span class="res-pill__label">${t('预载资源')}<${MicroLabel}>PRELOAD<//></span>
+    <button type="button" class="res-pill__head" title=${t('检查资源清单和管理 ZIP 资源包')} onClick=${openResources}>
+      <span class="res-pill__label">${t('资源清单')}<${MicroLabel}>ASSETS<//></span>
       <span class="res-pill__state">${stateText(st, enabled)}</span>
     </button>
-    <p class="res-pill__hint">${t('必备 / 可选资源 · ZIP 导入与导出')}</p>
+    <p class="res-pill__hint">${t('清单校验 · ZIP 主动导入与导出')}</p>
   </div>`;
 }
 
-function ResourceTier({ st, tier, optional, onOptional, disabled }) {
+function ResourceTier({ st, tier }) {
   const groups = st.groups.filter((g) => g.tier === tier);
   const chosen = groups.filter((g) => g.selected !== false);
   const total = chosen.reduce((n, g) => n + g.wanted, 0);
@@ -97,18 +92,16 @@ function ResourceTier({ st, tier, optional, onOptional, disabled }) {
   const unknown = chosen.some((g) => g.unknownSize);
   return html`<section class="resource-tier">
     <header class="resource-tier__head">
-      <div><h3>${tier === 1 ? t('必备资源') : t('可选资源')}</h3>
-        <p>${tier === 1 ? t('地图、干员图片与 Spine 等画面资源') : t('角色语音、官方特效、音效、背景音乐与玩法说明图片')}</p></div>
-      ${tier === 2 ? html`<label class="resource-choice"><input type="checkbox" checked=${optional} disabled=${disabled}
-        onChange=${(e) => onOptional(e.currentTarget.checked)} />${t('同时预载')}</label>` : html`<${MicroLabel}>REQUIRED<//>`}
+      <div><h3>${tier === 1 ? t('地图与画面资源') : t('语音与特效资源')}</h3>
+        <p>${tier === 1 ? t('地图、人物图片、模型与 Spine 动画') : t('全语言角色语音、技能特效、音效、背景音乐与说明图片')}</p></div>
+      <${MicroLabel}>${tier === 1 ? 'VISUALS' : 'AUDIO / FX'}<//>
     </header>
     <div class="resource-tier__summary"><span class="num">${t('{done} / {total} 个文件', { done, total })}</span>
       <span class="num">${unknown ? t('部分大小未知') : `${formatBytes(bytes)} / ${formatBytes(totalBytes)}`}</span></div>
     <${ProgressBar} value=${done} max=${Math.max(1, total)} size="sm" tone=${tier === 1 ? 'mint' : 'amber'} />
     <ul class="resource-tier__list">
       ${groups.map((group) => html`<li key=${group.id}
-        class=${st.archivePhase === 'import' && st.archiveGroup === group.id ? 'is-importing' : group.selected === false ? 'is-unselected' : ''}><span>${t(group.name)}
-          ${group.selected === false ? html`<small>${t('未选择')}</small>` : null}
+        class=${st.archivePhase === 'import' && st.archiveGroup === group.id ? 'is-importing' : ''}><span>${t(group.name)}
           ${st.archivePhase === 'import' && st.archiveGroup === group.id ? html`<small>${t('正在导入')}</small>` : null}</span>
         <span class="num">${group.present}/${group.wanted}</span>
         <span class="num">${group.unknownSize ? t('大小待确认') : formatBytes(group.totalBytes)}</span></li>`)}
@@ -116,29 +109,8 @@ function ResourceTier({ st, tier, optional, onOptional, disabled }) {
   </section>`;
 }
 
-function ResourceOptions({ optional, voiceLang, onVoiceLang, skins, onSkins, disabled }) {
-  const selected = normalizePreloadVoiceLang(voiceLang);
-  return html`<div class="resource-manager__options">
-    <fieldset class="resource-voice-choice" disabled=${disabled}>
-      <legend>${t('预载语音语言')}</legend>
-      <div class="resource-voice-choice__options" role="group" aria-label=${t('预载语音语言')} data-testid="preload-voice-lang">
-        ${PRELOAD_VOICE_LANGS.map((lang) => html`<label class="resource-choice" key=${lang}>
-          <input type="checkbox" name="preload-voice-lang" value=${lang} checked=${selected.includes(lang)}
-            onChange=${(e) => onVoiceLang(normalizePreloadVoiceLang(e.currentTarget.checked
-              ? [...selected, lang] : selected.filter((id) => id !== lang)))} />${t(PRELOAD_VOICE_LABELS[lang])}</label>`)}
-      </div>
-      <p>${t('可多选；全部取消勾选则不预载语音。')}</p>
-      <p>${t('仅影响预载范围；播放语言仍在设置中选择。切换后保留已有缓存。')}</p>
-      ${!optional ? html`<p>${t('勾选“同时预载”后下载所选语音。')}</p>` : null}
-    </fieldset>
-    <div class="resource-skin-options"><label class="resource-choice resource-skin-choice"><input type="checkbox" checked=${skins} disabled=${disabled}
-      onChange=${(e) => onSkins(e.currentTarget.checked)} />${t('预载皮肤')}</label>
-      <p class="resource-skin-hint">${t('独立于“同时预载”；不勾选时，启用的皮肤仅在显示时按需加载。保留已有缓存。')}</p></div>
-  </div>`;
-}
-
 /** Mounted once in main.js, above all screens including the settings modal. */
-export function ResourceHost({ enabled, optional, voiceLang = 'cn', onVoiceLang, skins = false, onSkins, onChange, onOptional }) {
+export function ResourceHost({ enabled, onChange }) {
   const { open } = useStore((s) => s, Object.is, resourceUi);
   const st = useResources();
   const fileInput = useRef(null);
@@ -148,7 +120,7 @@ export function ResourceHost({ enabled, optional, voiceLang = 'cn', onVoiceLang,
     const file = e.currentTarget.files?.[0];
     e.currentTarget.value = '';
     if (!file) return;
-    try { await importResources(file, { onImported: () => onChange(true) }); } catch { /* controller displays the error */ }
+    try { await importResources(file); } catch { /* controller displays the error */ }
   };
   const exportFile = async () => {
     try {
@@ -163,57 +135,38 @@ export function ResourceHost({ enabled, optional, voiceLang = 'cn', onVoiceLang,
       setTimeout(() => URL.revokeObjectURL(url), 60000);
     } catch { /* controller displays the error */ }
   };
-  return html`<${Modal} open=${open} onClose=${closeResources} title=${t('预载资源管理')} micro="RESOURCE MANAGER" class="resource-modal" utility=${true}
+  return html`<${Modal} open=${open} onClose=${closeResources} title=${t('资源清单与导入')} micro="RESOURCE MANAGER" class="resource-modal" utility=${true}
     actions=${html`
-      ${busy(st) ? html`<${Button} variant="secondary" icon="hourglass" onClick=${pauseResources}>${archiveBusy ? t('取消处理') : t('暂停下载')}<//>`
+      ${busy(st) ? html`<${Button} variant="secondary" icon="hourglass" onClick=${pauseResources}>${archiveBusy ? t('取消处理') : t('暂停检查')}<//>`
         : html`<${Button} variant="primary" icon="play" disabled=${!st.supported || st.combatPaused}
-          onClick=${() => enabled ? startResources() : onChange(true)}>${st.selectionComplete ? t('检查资源') : enabled ? t('继续下载') : t('开始预载')}<//>`}
+          onClick=${() => enabled ? startResources() : onChange(true)}>${t('检查资源')}<//>`}
       ${enabled && st.combatPaused && !st.manualPaused && !archiveBusy ? html`<${Button} variant="secondary" icon="hourglass"
-        onClick=${pauseResources}>${t('暂停下载')}<//>` : null}
+        onClick=${pauseResources}>${t('暂停检查')}<//>` : null}
       <${Button} variant="secondary" onClick=${closeResources}>${t('关闭')}<//>`}>
     <div class="resource-manager">
-      <p class="resource-manager__intro">${t('先预载必备资源；可选资源可按需加载。关闭此窗口后，下载会在后台继续。')}</p>
-      <${ResourceOptions} optional=${optional} voiceLang=${voiceLang} onVoiceLang=${onVoiceLang} skins=${skins} onSkins=${onSkins} disabled=${archiveBusy} />
+      <p class="resource-manager__intro">${t('网站提供资源校验清单，不提供批量资源下载。玩家可导入完整资源包；游戏使用中的资源仍会按需请求并缓存。自动检查只读取清单与本机缓存。')}</p>
       <div class="resource-manager__tiers">
         <${ResourceTier} st=${st} tier=${1} />
-        <${ResourceTier} st=${st} tier=${2} optional=${optional} onOptional=${onOptional} disabled=${archiveBusy} />
+        <${ResourceTier} st=${st} tier=${2} />
       </div>
       <p class=${`resource-manager__status${st.error ? ' is-error' : ''}`} role="status" aria-live="polite">
-        ${st.message || (enabled ? t('预载已开启') : t('选择下载范围，然后开始预载；也可以直接导入资源包。'))}</p>
-      ${st.packProgress ? html`<div class="resource-manager__pack-progress">
-        <${ProgressBar}
-          value=${resourcePackPercent(st.packProgress)} max=${100} size="sm" tone="mint"
-          label=${t('{0}资源包：{percent}%', { 0: t('正在下载'),
-            percent: resourcePackPercent(st.packProgress) })} />
-        <small>${t('下载速度：{0}/秒', { 0: formatBytes(st.packProgress.speedBytesPerSecond || 0) })}
-          ${st.packProgress.activeDownloads > 1 ? ` · ×${st.packProgress.activeDownloads}` : ''}</small>
-      </div>` : null}
-      ${st.packProgress?.importing ? html`<${ProgressBar}
-        value=${st.packProgress.importing.done} max=${Math.max(1, st.packProgress.importing.totalFiles)}
-        size="sm" tone="amber" label=${t('{0}资源包：{percent}%', {
-          0: t('正在导入'),
-          percent: st.packProgress.importing.totalFiles
-            ? Math.floor(st.packProgress.importing.done * 100 / st.packProgress.importing.totalFiles) : 0 })} />` : null}
+        ${st.message || (enabled ? t('自动清单检查已开启') : t('可检查资源清单，或直接导入资源包。'))}</p>
       ${st.worker ? html`<p class="resource-manager__warn">${st.worker}</p>` : null}
-      ${st.failed ? html`<p class="resource-manager__warn">${t('{failed} 个文件下载失败，继续下载时重试。', { failed: st.failed })}</p>` : null}
-      ${st.skipped ? html`<p class="resource-manager__warn">${t('{skipped} 个文件超过单文件缓存上限，使用时按需加载。', { skipped: st.skipped })}</p>` : null}
+      ${st.skipped ? html`<p class="resource-manager__warn">${t('{skipped} 个文件超过缓存上限，不包含在本地缓存统计中。', { skipped: st.skipped })}</p>` : null}
       <section class="resource-archive">
         <h3>${t('ZIP 资源包')}</h3>
-        <p>${t('可将已缓存的资源导出为 ZIP 并发送给朋友，也可以前往我的动态下载资源包。支持导入旧版本资源包；导入会校验完整性，只复用当前版本仍有效的文件，并增量下载缺少的资源。')}</p>
+        <p>${t('网站仅提供校验清单，不托管完整资源包。获取资源 ZIP 后可主动导入；导入会校验文件，只写入当前清单中仍有效的资源。导出会打包本机已缓存的资源。')}</p>
         ${st.archive ? html`<${ProgressBar} value=${st.archivePercent} max=${100} size="sm" tone="mint" />` : null}
         <input ref=${fileInput} type="file" accept=".zip,application/zip,application/x-zip-compressed" hidden onChange=${importFile} />
         <div class="res-actions">
           <${Button} variant="secondary" disabled=${archiveBusy || !st.supported} onClick=${() => fileInput.current?.click()}>${t('导入 ZIP')}<//>
           <${Button} variant="secondary" disabled=${archiveBusy || !st.supported || !st.done} onClick=${exportFile}>${t('导出 ZIP')}<//>
-          <${Button} variant="secondary" icon="link" disabled=${!RESOURCE_DOWNLOAD_URL}
-            title=${RESOURCE_DOWNLOAD_URL ? t('前往我的动态下载资源包') : t('下载链接待补充')}
-            onClick=${() => window.open(RESOURCE_DOWNLOAD_URL, '_blank', 'noopener,noreferrer')}>${t('前往下载')}<//>
         </div>
       </section>
       <div class="resource-manager__maintenance">
         <button type="button" class="res-link" disabled=${archiveBusy} onClick=${() => { void clearResources(); }}>${t('清理缓存')}</button>
-        ${enabled ? html`<button type="button" class="res-link" onClick=${() => onChange(false)}>${t('关闭预载')}</button>` : null}
-        <span>${t('关闭预载会保留已缓存资源。')}</span>
+        ${enabled ? html`<button type="button" class="res-link" onClick=${() => onChange(false)}>${t('关闭自动检查')}</button>` : null}
+        <span>${t('自动检查不会下载缺失文件；关闭后已缓存资源仍保留。')}</span>
       </div>
     </div>
   <//>`;

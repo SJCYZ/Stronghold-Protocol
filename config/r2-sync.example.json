@@ -18,7 +18,6 @@
   "sync": {
     "transfers": 32,
     "checkers": 64,
-    "mirror": false,
-    "packRoutes": []
+    "mirror": false
   }
 }

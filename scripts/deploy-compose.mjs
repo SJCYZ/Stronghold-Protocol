@@ -5,7 +5,7 @@
  * Default: read-only plan. Use --apply to:
  *   1. validate compose;
  *   2. back up compose/config/data manifests and record the old image;
- *   3. upload data/assets/fonts/packs to the configured static root;
+ *   3. upload data/assets/fonts to the configured static root;
  *   4. build the stronghold image;
  *   5. recreate only the game service (never `down -v`);
  *   6. wait for /healthz and roll the service back to the old image on failure.
@@ -29,8 +29,6 @@ const DEFAULTS = {
   dataTarget: process.env.SP_DATA_TARGET || '',
   assetsTarget: process.env.SP_ASSETS_TARGET || '',
   fontsTarget: process.env.SP_FONTS_TARGET || '',
-  packsTarget: process.env.SP_PACKS_TARGET || '',
-  python: process.env.SP_PYTHON || (process.platform === 'win32' ? 'python' : 'python3'),
   assetSource: process.env.SP_ASSET_SOURCE || 'direct',
   backupRoot: process.env.SP_DEPLOY_BACKUP_ROOT || path.join(ROOT, '.cache', 'deploy-backups'),
   waitSeconds: 120,
@@ -44,23 +42,20 @@ const usage = `用法：
 
 重要选项：
   --apply                 实际执行；不加时只做检查和输出计划
-  --prepare-assets        自动下载素材、重算哈希并生成 16MB 分包（不转换图片/音频）
+  --prepare-assets        自动下载素材、重算哈希并生成资源校验清单（不转换图片/音频）
   --asset-source <mode>   setup/fetch-assets 源：direct 或 mirror
-  --python <command>      Python 命令，默认 python3（Windows 默认 python）
   --pull                  apply 前执行 git pull --ff-only
   --compose <file>        Compose 文件
   --project <name>        Compose project name
   --service <name>        游戏服务，默认 stronghold
   --health <url>          健康检查地址，默认 http://127.0.0.1:3080/healthz
-  --static-root <dir>     CDN 静态根目录；自动使用其 data/assets/fonts/resource-packs 子目录
+  --static-root <dir>     CDN 静态根目录；自动使用其 data/assets/fonts 子目录
   --data-target <dir>     覆盖数据同步目录
   --assets-target <dir>   覆盖素材同步目录
   --fonts-target <dir>    覆盖字体同步目录
-  --packs-target <dir>    覆盖 16MB 资源包同步目录
   --backup-root <dir>     备份目录
   --skip-data             不同步 data
   --skip-assets           不同步 public/assets/fonts
-  --skip-packs            不同步 public/resource-packs
   --no-build              不构建镜像
   --wait <seconds>        健康检查超时，默认 120
   --help
@@ -70,7 +65,7 @@ const usage = `用法：
 
 function parseArgs(argv) {
   const o = { ...DEFAULTS, apply: false, pull: false, prepareAssets: false, skipData: false, skipAssets: false,
-    skipPacks: false, noBuild: false, project: '', compose: DEFAULTS.compose };
+    noBuild: false, project: '', compose: DEFAULTS.compose };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     const next = () => argv[++i] || '';
@@ -79,7 +74,6 @@ function parseArgs(argv) {
     else if (a === '--prepare-assets') o.prepareAssets = true;
     else if (a === '--skip-data') o.skipData = true;
     else if (a === '--skip-assets') o.skipAssets = true;
-    else if (a === '--skip-packs') o.skipPacks = true;
     else if (a === '--no-build') o.noBuild = true;
     else if (a === '--compose') o.compose = path.resolve(next());
     else if (a === '--project') o.project = next();
@@ -89,8 +83,6 @@ function parseArgs(argv) {
     else if (a === '--data-target') o.dataTarget = path.resolve(next());
     else if (a === '--assets-target') o.assetsTarget = path.resolve(next());
     else if (a === '--fonts-target') o.fontsTarget = path.resolve(next());
-    else if (a === '--packs-target') o.packsTarget = path.resolve(next());
-    else if (a === '--python') o.python = next();
     else if (a === '--asset-source') o.assetSource = next();
     else if (a === '--backup-root') o.backupRoot = path.resolve(next());
     else if (a === '--wait') o.waitSeconds = Math.max(1, Number(next()) || DEFAULTS.waitSeconds);
@@ -98,13 +90,12 @@ function parseArgs(argv) {
     else if (a === '--help' || a === '-h') { console.log(usage); process.exit(0); }
     else throw new Error(`未知参数：${a}\n${usage}`);
   }
-  if (!o.staticRoot && (o.dataTarget || o.assetsTarget || o.fontsTarget || o.packsTarget)) {
+  if (!o.staticRoot && (o.dataTarget || o.assetsTarget || o.fontsTarget)) {
     // Explicit individual targets are allowed without a common root.
   } else if (o.staticRoot) {
     o.dataTarget ||= path.join(o.staticRoot, 'srv');
     o.assetsTarget ||= path.join(o.staticRoot, 'assets');
     o.fontsTarget ||= path.join(o.staticRoot, 'fonts');
-    o.packsTarget ||= path.join(o.staticRoot, 'resource-packs');
   }
   return o;
 }
@@ -183,7 +174,7 @@ async function backupDeployment(o, oldImage) {
   await fs.mkdir(dir, { recursive: true });
   await copyFile(o.compose, path.join(dir, 'compose.yml'));
   for (const file of ['config/announcements.json', 'data/assets.json', 'data/local-assets.json',
-    'data/asset-hashes.json', 'data/resource-packs.json']) {
+    'data/asset-hashes.json']) {
     await copyFile(path.join(ROOT, file), path.join(dir, file));
   }
   await fs.writeFile(path.join(dir, 'deployment.json'), JSON.stringify({
@@ -255,12 +246,6 @@ async function prepareAssets(o, backupDir) {
     "const result = await createResourceIndex({ dataDir: `${root}/data`, publicDir: `${root}/public` }).get();",
     "await fs.writeFile(`${root}/data/resource-manifest.json`, JSON.stringify(result.manifest) + '\\n');",
   ].join('\n');
-  const packs = [o.python, path.join(ROOT, 'tools', 'resource_packs.py'),
-    '--manifest', path.join(candidateData, 'resource-manifest.json'),
-    '--assets-root', candidatePublic,
-    '--output', path.join(candidatePublic, 'resource-packs'),
-    '--index', path.join(candidateData, 'resource-packs.json')];
-
   console.log(`\n资源准备候选目录：${candidate}`);
   command(setup);
   // Snapshot the downloaded/existing art without image/audio conversion. Keep
@@ -273,18 +258,14 @@ async function prepareAssets(o, backupDir) {
   }
   command([process.execPath, path.join(ROOT, 'tools', 'asset-hashes.mjs'), '--root', candidate]);
   command([process.execPath, '--input-type=module', '-e', manifestCode]);
-  command(packs);
-
   if (!options.apply) return;
-  // Only publish completed manifests/packs; the candidate did not mutate art.
-  await fs.cp(path.join(candidatePublic, 'resource-packs'), path.join(ROOT, 'public', 'resource-packs'),
-    { recursive: true, force: true, errorOnExist: false });
-  for (const name of ['assets.json', 'local-assets.json', 'asset-hashes.json', 'resource-packs.json']) {
+  // Only publish completed manifests; the candidate did not mutate art.
+  for (const name of ['assets.json', 'local-assets.json', 'asset-hashes.json']) {
     if (await exists(path.join(candidateData, name))) {
       await fs.copyFile(path.join(candidateData, name), path.join(ROOT, 'data', name));
     }
   }
-  console.log('素材下载、哈希和 16MB 分包已应用到当前部署源目录（未转换素材）。');
+  console.log('素材下载、哈希和资源校验清单已应用到当前部署源目录（未转换素材）。');
 }
 
 async function main() {
@@ -302,7 +283,7 @@ async function main() {
     if (!o.apply) {
       console.log(`计划执行：${process.execPath} tools/setup.mjs --yes --no-local --no-scenes --asset-source=${o.assetSource}`);
       console.log('计划执行：复制现有素材到隔离候选并重算哈希，不转换图片或音频');
-      console.log('计划执行：生成 resource-manifest.json、16MB 分类 ZIP 和 resource-packs.json');
+      console.log('计划执行：生成 resource-manifest.json');
     } else {
       await prepareAssets(o, backup.dir);
     }
@@ -314,13 +295,11 @@ async function main() {
     await normalizeReadableTree(path.join(ROOT, 'data'));
     await normalizeReadableTree(path.join(ROOT, 'public', 'assets'));
     await normalizeReadableTree(path.join(ROOT, 'public', 'fonts'));
-    await normalizeReadableTree(path.join(ROOT, 'public', 'resource-packs'));
   }
 
   if (!o.skipData && o.dataTarget) await copyTree(path.join(ROOT, 'data'), o.dataTarget, 'data');
   if (!o.skipAssets && o.assetsTarget) await copyTree(path.join(ROOT, 'public', 'assets'), o.assetsTarget, 'assets');
   if (!o.skipAssets && o.fontsTarget) await copyTree(path.join(ROOT, 'public', 'fonts'), o.fontsTarget, 'fonts');
-  if (!o.skipPacks && o.packsTarget) await copyOptionalTree(path.join(ROOT, 'public', 'resource-packs'), o.packsTarget, 'resource-packs');
 
   if (!o.apply) {
     console.log('\n预检完成。建议实际执行：');

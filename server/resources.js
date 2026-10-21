@@ -21,7 +21,6 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 import zlib from 'node:zlib';
 import { canonicalResourceUrl, isBoardResourceJson } from '../shared/resourcePaths.js';
-import { routeResourcePacks } from '../shared/resourcePackRoutes.js';
 
 export const RESOURCE_MANIFEST_FILE = 'resource-manifest.json';
 export const RESOURCE_PACK_MANIFEST_FILE = 'resource-packs.json';
@@ -262,7 +261,7 @@ export function localPathFor(url, publicDir, cdnBase = '') {
  *           statFile?: (p: string) => Promise<{ isFile(): boolean, size: number, mtimeMs: number }>,
  *           readFile?: typeof fsp.readFile, log?: any }} opts
  */
-export function createResourceIndex({ dataDir, publicDir, cdnBase = '', resourcePackRoutes = [], rewrite = (v) => v,
+export function createResourceIndex({ dataDir, publicDir, cdnBase = '', rewrite = (v) => v,
   statFile = (p) => fsp.stat(p), readFile = fsp.readFile, log = null } = {}) {
   /** @type {{ key: string, sourceKey: string, tileFiles: { url: string }[], body: Buffer, gzip: Buffer,
    *   etag: string, mtimeMs: number, manifest: any } | null} */
@@ -324,16 +323,7 @@ export function createResourceIndex({ dataDir, publicDir, cdnBase = '', resource
   async function build(epoch) {
     const previous = cache;
     const sources = await Promise.all(['assets.json', 'local-assets.json', ASSET_HASHES_FILE, 'local-fx.json'].map(sourceFile));
-    // The optional pack index is probed only when it exists. Keeping it out of
-    // the normal source stat set preserves the cheap three-manifest startup
-    // path for installs that publish packs nowhere.
-    let packSource = null;
-    try {
-      const file = path.join(dataDir, RESOURCE_PACK_MANIFEST_FILE);
-      const stat = await fsp.stat(file);
-      if (stat.isFile()) packSource = { file, mtimeMs: stat.mtimeMs, size: stat.size };
-    } catch { /* optional deployment artifact */ }
-    const sourceKey = [...sources.map(stamp), stamp(packSource), cdnBase].join('|');
+    const sourceKey = [...sources.map(stamp), cdnBase].join('|');
     // Cache hits only stat the source files and the already-discovered board companions.
     // Keep missing companions in tileFiles so creation, not just edits/deletion, invalidates the cache.
     if (previous && previous.sourceKey === sourceKey) {
@@ -342,7 +332,6 @@ export function createResourceIndex({ dataDir, publicDir, cdnBase = '', resource
       if (previous.key === key) return previous;
     }
     const [assets, local, hashesDoc, fx] = await Promise.all(sources.map(readJson));
-    const packsDoc = await readJson(packSource);
     const assetsDoc = assets ? rewrite(assets.doc) : null;
     const localDoc = local || fx ? rewrite({ ...(local?.doc || {}), groups: { ...(local?.doc?.groups || {}), ...(fx?.doc?.groups || {}) } }) : null;
     const collected = collectResourceFiles(assetsDoc, localDoc);
@@ -363,10 +352,6 @@ export function createResourceIndex({ dataDir, publicDir, cdnBase = '', resource
     // or any hash does — the settings panel and the /healthz-style diagnostics read it.
     const version = shortHash([cdnBase, ...files.map((f) => `${f.url}|${fileHashes.get(f.url)}|${f.tier}`)].join('\n'));
     const manifest = buildResourceManifest({ files, sizes: await measure(files), version, hashes: fileHashes });
-    const packs = packsDoc?.doc;
-    if (packs && packs.format === 'stronghold-resource-pack-index' && packs.version === 1) {
-      manifest.packs = routeResourcePacks(packs.packs, cdnBase, resourcePackRoutes);
-    }
     const body = Buffer.from(JSON.stringify(manifest));
     // Hash the complete response (including tiers and sizes), so unchanged rebuilds/restarts keep their validator.
     const etag = `"resources-${crypto.createHash('sha256').update(body).digest('hex')}"`;

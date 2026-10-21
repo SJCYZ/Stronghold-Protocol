@@ -1,9 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, readFile, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rename, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { installSkinPortraits } from '../tools/install-skins.mjs';
+import { installSkinPortraits, writeJsonAtomic } from '../tools/install-skins.mjs';
 import { isCompletePng } from '../tools/assets/formats.mjs';
 
 test('portrait upgrade is resumable, publishes only valid downloads and preserves existing model/selection metadata', async (t) => {
@@ -43,4 +43,21 @@ test('portrait upgrade is resumable, publishes only valid downloads and preserve
   assert.notEqual(result.hash, firstHash);
   assert.deepEqual(JSON.parse(await readFile(path.join(root, 'data/skins-installed.json'))), { installed: [good, missing] });
   assert.equal(isCompletePng(await readFile(path.join(root, 'public/assets/char/portrait/skin/winter.png'))), true);
+});
+
+test('atomic manifest writes retry transient Windows rename locks', async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), 'sp-atomic-json-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const target = path.join(root, 'manifest.json');
+  let attempts = 0;
+  await writeJsonAtomic(target, { installed: 1 }, {
+    renameFile: async (from, to) => {
+      attempts += 1;
+      if (attempts < 3) throw Object.assign(new Error('transient sharing violation'), { code: 'EPERM' });
+      return rename(from, to);
+    },
+    delay: async () => {},
+  });
+  assert.equal(attempts, 3);
+  assert.deepEqual(JSON.parse(await readFile(target, 'utf8')), { installed: 1 });
 });

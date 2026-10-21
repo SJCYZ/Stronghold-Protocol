@@ -96,14 +96,14 @@ so a long `Cache-Control` is safe only if you invalidate on update — the serve
 
 Game data can use a CDN: set `SP_DATA_CDN=https://cdn.example.com/stronghold` and upload the full `data/` directory.
 All same-origin `/data/**/*.json` requests use runtime `DATA_CDN`, including game tables, `assets.json`,
-`asset-hashes.json`, `local-assets.json`, `local-fx.json`, `resource-packs.json`, `resource-manifest.json`,
+`asset-hashes.json`, `local-assets.json`, `local-fx.json`, `resource-manifest.json`,
 and `data/i18n/`. Game text files under `/packs/<id>/texts/` also use the data CDN; UI strings under `/i18n/`
 and `/packs/<id>/` use `ASSETS_CDN`. `/packs/index.json`, `/js/asset-cdn.js`, and game-server API responses stay
 on the origin. The server continues reading local `data/` for game logic and generated APIs; only browser requests move.
 
-`bash scripts/sync-to-r2.sh` uploads assets, optional fonts/resource packs and data to an `rclone` R2 remote. It prepares
-the generated `resource-manifest.json` in a temporary data tree, routes asset and pack URLs to the configured CDN bases,
-then uploads it with the other JSON. Copy `config/r2-sync.example.json` to the ignored `config/r2-sync.json` and fill in
+`bash scripts/sync-to-r2.sh` uploads assets, optional fonts and data to an `rclone` R2 remote. It prepares
+the generated `resource-manifest.json` in a temporary data tree, routes asset URLs to the configured CDN base,
+removes any obsolete resource-pack index from the staged data, then uploads it with the other JSON. Copy `config/r2-sync.example.json` to the ignored `config/r2-sync.json` and fill in
 deployment credentials. With `--apply`, successful uploads are followed by a Cloudflare cache purge, scoped to CDN prefixes
 by default in JSON config mode. Legacy environment mode purges the entire Zone. The API token needs Zone Cache Purge
 permission. Without `--mirror` or `sync.mirror: true`, uploading never deletes remote files. See [R2_SYNC.md](R2_SYNC.md)
@@ -113,205 +113,57 @@ The data CDN serves the uploaded static JSON while game-origin `/data/*.json` en
 legacy clients; Node does not redirect those responses. Configure CORS on the CDN. Rebuild the client for this upgrade;
 subsequent CDN configuration changes only require a server restart and page refresh.
 
-## Preload (optional asset preloading)
+## Resource checklist and manual ZIP import
 
-The resource manifest uses HTTP cache revalidation (`cache: 'no-cache'`): unchanged responses return 304 and the
-browser supplies the cached JSON. Its ETag depends on the complete response content, so rebuilding the same manifest
-or restarting the server keeps the validator; a changed manifest returns fresh JSON.
+The title screen and Settings open one resource manager. It reads GET /data/resource-manifest.json, compares the
+current manifest with the browser Cache Storage, and shows file counts, sizes and missing categories. The manifest
+ETag changes with the complete file list and fingerprints. It includes maps, characters, base models, skins installed
+on the server, all voice languages, sound and music, official skill effects, fonts, UI and icons.
 
-A player can have the client download the art ahead of time into the browser's Cache Storage, so entering a battle never
-waits on a download: the files are served from the browser cache instead of being fetched again. It is **off by default** and
-there is a way in without leaving the home screen: the title screen shows a compact 「预载资源」 pill in its bottom-right
-corner, and 设置 ▸ 预载资源 provides the same entry. Both open a large resource manager (`ui/resourcePanel.js`) with
-required/optional groups, file counts, sizes, progress and ZIP import/export. Opening it only checks the manifest/cache;
-asset downloads start when the player clicks 开始预载 or successfully imports a package. Closing the modal leaves downloads
-running; 暂停下载 stops them and 关闭预载 disables automatic downloading while retaining the cache.
+The site does not provide bulk resource package downloads. The old /data/resource-packs.json and
+/resource-packs/*.zip endpoints return 404, and package URLs are not included in the checklist. The game still
+requests an asset when gameplay or the UI needs it; the Service Worker caches successful ordinary requests on demand.
+Turning on automatic checking only checks the manifest and local cache. It never fills missing files. Importing a ZIP
+does not enable automatic checks or start any other resource requests.
 
-- The list comes from the server: `GET /data/resource-manifest.json` is generated from the two manifests below and
-  rewritten the same way, so a CDN install preloads *from the CDN* (`server/resources.js`). Every entry carries a
-  `hash` — the first 12 hex of the SHA-1 of the file's bytes, written by `tools/asset-hashes.mjs` (fetched assets) and
-  `tools/local-extract/extract.py` (local-client art) — plus a `tier`:
-  **tier 1 (`essential`, 必备)** — maps and board meshes, operator/enemy/token pictures (including portraits), every
-  base Spine model (skel/atlas/textures), board effects, fonts, UI and icons; **tier 2 (`optional`, 可选)** — character
-  voices, official battle effects (`/assets/local/fx/`), sound effects, background music and tutorial illustrations. Required files are preloaded by default; the
-  同时预载 checkbox opts into optional files, persisted as `settings.preloadOptional` (default false, including old
-  settings). Unselected optional files still load normally on demand. Sizes are included
-  for the files this install has on disk; a CDN-only install omits them and the client reports progress in files
-  instead of bytes. A file without a recorded hash falls back to a synthetic one derived from its source manifest, so
-  such a manifest keeps the old "any rebuild invalidates the set" rule.
-- **Updating is incremental.** All the files live in one cache (`stronghold-resources-v1-all`) and each entry's hash is
-  recorded in an index entry inside it, so a new manifest re-downloads the files whose hash changed and keeps the rest:
-  adding the local-client art to an install that already preloaded costs the new files, not the whole set. A cache of
-  the older layout (named after a version, no hashes) is **migrated instead of discarded**: an existing entry with a
-  valid non-negative integer `Content-Length` is moved into the new cache without reading or hashing its body.
-  Entries without that header are fetched again. The panel says 「正在整理已保存的资源（无需重新下载）」 while that runs.
-  The worker prefers the current cache when a URL exists in both. This is an explicit speed trade-off: a stale or corrupt
-  legacy entry can be reused, and its length need not match the manifest or actual body. The ordinary indexed cache
-  still rejects recorded fingerprints from another revision, so manifest updates remain incremental.
-  With preload enabled, each page load revalidates the server resource manifest (ETag/304 unchanged), then reads
-  the preload fingerprint index and the separate runtime URL index. A complete indexed selection avoids cache key
-  enumeration and pruning during startup. This is a provisional snapshot (`cacheVerified: false`), not proof that
-  the browser retained every file. Five seconds later a background full check repairs evicted metadata, discovers
-  older unindexed runtime entries, performs normal complete-set cleanup and downloads only selected missing files.
-  Saved-resource inspection is **header-only**, not an integrity check: at most eight concurrent `Cache.match` reads
-  require the entry to exist and carry a valid `Content-Length`. No asset body is read, cloned or hashed, and header
-  lengths are not compared with body or manifest sizes. Missing/invalid length headers are treated as missing files;
-  a valid zero is accepted. This deliberately cannot detect corrupted/truncated saved bodies. The startup index-only
-  path stays unchanged; `cacheVerified: true` means presence/headers were checked, not content integrity.
-  Fresh downloads without a length header, or with content encoding, record their actual decoded byte length before
-  storing; compressed wire lengths must never be reused. This reads only new downloads, not saved resources. Normal
-  fresh-download fingerprint verification and ZIP import/export body/CRC/digest checks remain intact.
-  Opening resource management or clicking 检查资源 performs an authoritative check too. Missing indexes fall back
-  to the download's real-cache inspection rather than assuming completeness. No startup/check path hashes or reads
-  asset bodies. Full scans read cache keys and both metadata indexes in parallel; only in-flight checks of the same
-  mode are coalesced, with independent status snapshots. Active runs publish their counters to the manager.
-- Deployment-generated transport packs (`data/resource-packs.json` plus `public/resource-packs/`) are an optional first-fill
-  optimization. At most two ZIP requests run concurrently. The browser parses stored entries from each response stream as
-  bytes arrive, shows aggregate download progress/speed plus cache-import progress, and lets the next package download
-  overlap the preceding package's cache import. It authenticates the complete ZIP once against the pack index's full
-  SHA-1, then checks the embedded manifest and each selected entry's URL, size and hash metadata against the index/current
-  resource manifest. Trusted transport-pack payloads are not rehashed or CRC-checked per file; unselected payload bytes
-  are consumed for the whole-package digest but not retained. This exception is only for server-indexed deployment packs.
-  Manually imported/general ZIP files still receive the normal per-entry CRC, size and content-digest checks. Missing,
-  invalid or mismatched transport packs fall back to the ordinary per-file fetch path.
-- **Weak-network runtime art recovery.** Battle-time images, Spine files and official board sidecars use a shared
-  request transport (`public/js/resourceNetwork.js`): identical URLs are coalesced, visible critical art is prioritized,
-  runtime transfers are limited to four (two on `2g`/`3g`), transient HTTP failures retry with 1/3/8/20-second
-  jittered backoff, and permanent 404s are not retried. A transfer must receive bytes within 30 seconds and finish
-  within 180 seconds; receiving bytes resets only the idle deadline. The response stream is consumed once and is then
-  decoded by the existing image/Pixi pipeline. A timeout aborts the old request before retrying, so it cannot duplicate
-  a still-hung download. Failed art remains a placeholder rather than blocking the battle; `online`/visible recovery
-  retries failed images and board packs, while a healthy pending Spine request remains shared. Preload and manual ZIP
-  integrity paths are not routed through this transport.
-  Runtime writes record a URL only after Cache.put succeeds; their separate index cannot overwrite the preload/ZIP
-  hash index. Shared runtime resource locks and exclusive download/clear/repair locks prevent cleanup races; runtime
-  index updates are serialized separately. Runtime registrations are deduplicated and coalesced: each batch flushes
-  after 250 ms from its first registration or when it reaches 64 distinct URLs, whichever comes first. One batch
-  reads/merges the index once and writes it only if it changed; an already-indexed URL does not cause a rewrite.
-  Registrations arriving during I/O join a new serialized batch. Every fetch's `waitUntil` and shared resource lock
-  cover its batch flush, so neither normal SW lifetime completion nor a successful clear can leave a delayed write.
-  Failed metadata writes keep valid asset bytes; a later full inspection repairs missing metadata. Preload and ZIP
-  retain their existing 64-resource/final-flush policy; full-check repair/prune still update metadata immediately.
-  The client logs `[resources] preload check timings` with manifestMs,
-  cacheKeysMs (zero on the fast path), indexReadMs, verified, background and total duration.
-  These are standalone SW dependencies: rebuild/restart and update the worker on deployment.
-  If the browser rejects aggregate `Cache.keys()` with `Operation too large`, full checks probe exact known
-  manifest/index URLs with at most eight in-flight key lookups, without reading bodies or weakening fingerprint
-  matching. Unenumerable unknown stale entries are retained rather than blocking resume or deleting valid art.
-- **Voice preload scope.** The resource manager splits Chinese, Japanese, English and Korean voice categories and
-  offers four independent checkboxes; unchecking all disables voice preload. `settings.preloadVoiceLang` is an ordered
-  array of `cn`, `jp`, `en`, `kr`, persisted independently of playback `voiceLang` and per-operator overrides.
-  Old `cn`/`jp` strings migrate to one-element arrays, `all` to `["cn", "jp"]` (its original scope), and `none` to `[]`.
-  Old profiles without a valid scope use their saved playback dub once (Chinese by default).
-  The 同时预载 checkbox must still be enabled for voice and official battle-effect downloads; SFX, music and guide
-  images retain their existing behaviour. Language detection uses `/voice/cn/`, `/voice/jp/`, `/voice/en/` or
-  `/voice/kr/` directory names, including CDN prefixes, not filenames (Japanese files may be
-  named `cn_019.mp3`). Legacy/shared voice paths without a dub directory are shown separately and selected
-  unless voice preload is disabled entirely. A language switch cancels the previous download scope, waits for
-  in-flight work, and incrementally fills the latest selection; cached voices are never deleted by a switch.
-  Category counts/bytes, progress and completion reflect only selected eligible files; unselected groups remain
-  visible with cache counts and a 未选择 label. They cannot keep a selected preload incomplete. Category updates
-  reuse short counters rather than re-tallying the full manifest on each download/UI progress event.
-  ZIP validation/import/export remains unchanged: valid unselected voices in a package are retained and exported
-  with other cached files; only missing network downloads after import are filtered by the selected dub.
-  This touches standalone Service Worker dependencies: rebuild/restart and update SW on deployment. If UI language
-  JSON is served from the assets CDN, sync `public/i18n/` and refresh the corresponding cache; `data/` is unchanged.
-- **Official battle effects.** Files from `data/local-fx.json` appear as the separate optional 官方特效 group, including
-  index/textures JSON, prefab/mesh JSON and textures. They are not required for essential-only completion, do not depend
-  on selected voice languages or the playback/display settings, and still load on demand when unselected. Existing
-  board `/assets/local/map/fx/` remains essential. ZIP JSON allowlists and per-file integrity checks are unchanged;
-  the pack builder now separates `voice_en`, `voice_kr` and `fx`. Regenerate deployment manifests/ZIP packs after upgrading
-  so the new categories and optional effect tier are reflected (old mismatched-tier packs safely fall back to files).
-- The client (`public/js/resources/*`) downloads tier 1 first, then tier 2 only when selected: four lanes for small files
-  and one for files above 4 MiB, skipping whatever is already cached. Two tabs of the same browser never download the
-  same file twice: a Web Lock (`stronghold-resources-preload`, `ifAvailable`) makes one tab do the work while the others
-  report what is already cached and re-check when the player returns to them. A single failure is collected and retried next
-  time, a quota failure stops the run and says so, and a file above 24 MiB is skipped instead of cached. Downloads run
-  in the page (plain `fetch` + `cache.put`, `cache: 'no-store'` so nothing is stored twice).
-  Local board metadata is also required: `map/fx/materials.json`, `map/fx/prefab.json`,
-  `map/autochess/materials.json` and `map/autochess/tiles.json` under `/assets/local/` are the only JSON sidecars
-  accepted by preload and ZIP validation. The crop table is discovered beside a listed `TX_autochessi_D.png` atlas;
-  it is included when installed locally or recorded in the server hash table. Its local contents are hashed on manifest
-  rebuild and its size/mtime invalidate the manifest cache. `tools/asset-hashes.mjs` includes these board descriptions
-  while excluding game-data/language JSON. Brackets in resource paths use `%5B`/`%5D` consistently for manifest URLs,
-  cache keys and ZIP identities, matching renderer requests. Legacy ZIP paths and cached raw-bracket requests remain
-  readable. After updating these Service Worker dependencies, update the browser's worker registration.
-- **ZIP import/export.** 导出 ZIP packs currently cached files (partial preloads are supported) and
-  `stronghold-resources.json` version 2, which records stable resource paths, sizes, full 40-hex `sha1` digests and their
-  12-hex `hash` prefixes for the server fingerprint. Export computes SHA-1 once per resource and does not compute SHA-256.
-  Import accepts both v2 and legacy v1 packages, including older resource versions. It checks the central-directory file counts,
-  paths and manifest before writing. Local headers, data bounds and overlap are checked during each resource's single
-  extraction, along with CRC, actual size and its version's digests; there is no separate all-file header scan before importing.
-  Valid resources are immediately imported. A corrupt entry stops further work while preserving completed verified files. Only files matching
-  the current server manifest's content fingerprint are imported; changed/removed files and files with only synthetic
-  server hashes are skipped. The selected tiers are then completed using incremental downloads. Site/CDN prefix
-  changes do not prevent reuse: validated bytes are stored under the current manifest's URLs. Code, data and package
-  cache-index records are never imported. ZIP processing shares the download Web Lock, can be cancelled, and is loaded
-  lazily via vendored zip.js (no extra CDN/worker dependency). Resources up to 256 KiB run in at most four concurrent
-  slots, with at most 1 MiB of package payload buffers in flight. Larger or unknown-sized resources run alone. This overlaps
-  file reads, checks and Cache Storage writes without retaining the whole ZIP, avoiding a
-  second decompression pass, a staging cache and cloned response streams. Existing and incompatible package entries are
-  still verified. Limits: 24 MiB per resource, 50,000 resource files, 32 MiB manifest, 2 GiB compressed/decompressed
-  package. ZIP export uses stored entries because most assets are already compressed; imports also accept deflated
-  entries. Cancelled imports or quota errors retain completed, verified files. Preloading assets does not provide
-  offline multiplayer gameplay.
-  Stored entries use zip.js to validate their local headers, descriptors, bounds and overlap, then read their payload
-  directly into a byte buffer and verify CRC using zip.js's vendored Crc32 codec. This avoids Blob.stream and the
-  general ZIP stream-copy pipeline. Deflated entries retain the bounded stream extraction path. Stored payloads up to
-  16 MiB and their metadata share file blocks; returned bytes are independent copies. CRC, actual-size
-  and package-digest checks remain mandatory before any cache write. Diagnostics split stored-entry read time into
-  metadataMs, bodyReadMs and crcMs, and report storedFiles. These components are already included in readMs.
-  File read-ahead uses two aligned 16 MiB blocks, up to 32 MiB in total, with LRU eviction. Concurrent requests for a
-  block share one read; physical block reads are serialized. Reads crossing a block boundary concatenate the requested
-  bytes in order. Larger reads bypass the block cache. This cache budget is separate from the small-resource pipeline's
-  1 MiB payload budget and the exclusive large-resource buffer. Returned header and resource arrays are copied so
-  retained entries cannot pin or mutate cached file blocks. Diagnostics report fileReadCalls, fileReadBytes, fileReadMs,
-  maxReadAheadBytes and readCacheLimitBytes. After a successful import the preload setting
-  is enabled and persisted, and only missing resources in the selected tiers download. Failed/cancelled imports do
-  not enable a previously disabled preload.
-  V2 package bytes are checked with one full SHA-1 digest; legacy v1 bytes still require SHA-1 and SHA-256, once each.
-  The format version selects the required digests; v1 packages missing SHA-256 are rejected, not treated as v2.
-  The cache writer reuses an opaque locally issued verification
-  result bound to those bytes and the current fingerprint, so it does not repeat SHA-1 for newly imported files. ZIP
-  metadata cannot fabricate this result; unverified inputs still require a digest check. An existing cache copy is a
-  separate body and still receives its own SHA-1 check before being retained or repaired. Export uses BlobReader,
-  avoiding the additional typed-array slicing of Uint8ArrayReader. Legacy packages need no re-export; clients must be
-  updated to support v2 before importing newly exported packages.
-  ZIP progress is displayed as a percentage and updates at most every 500 ms within each phase. During import, the
-  category counts, sizes and progress bars refresh together, with the current category highlighted. Phase changes,
-  completion, cancellation and errors update immediately; integrity checks and cache writes continue independently.
-  Category counts are maintained incrementally per completed cache key; UI updates copy only the short category list.
-  Parallel imports can complete out of package order. On failure/cancellation, already-started cache puts are awaited
-  and successful writes indexed before releasing the download lock. Index writes are serialized.
-  A valid existing runtime cache copy also receives its verified preload fingerprint even when no asset rewrite is
-  needed, so subsequent metadata-only startup checks can count it. Index checkpoints flush after 64 changed records
-  and at completion/failure/cancellation; unchanged repeat imports do not rewrite the index. The final flush includes
-  writes that completed after another lane failed and retries a failed intermediate checkpoint.
-  A console summary records read, hash and cache timings after completion or interruption; stage durations are sums of overlapping work,
-  not CPU measurements or fractions of the total wall time. Diagnostics stay on the client.
-  If a same-version package imports far fewer files than it exported, check the server hash table: run
-  `node tools/asset-hashes.mjs` after downloading/updating local assets, then reload the receiving browser to fetch the
-  refreshed manifest. An absent/incomplete `data/asset-hashes.json` leaves files with synthetic hashes, which cannot
-  authorize ZIP imports. Existing ZIP packages already record actual content digests and need no re-export when their
-  bytes still match. Ship the updated hash table with the deployment's data files.
-- `public/resource-sw.js` (a module Service Worker, registered with `updateViaCache: 'none'`) answers `/assets/**`,
-  `/fonts/**` and the extension-less `/media/**` audio route from that cache — byte ranges included, so audio can seek —
-  and passes everything else (code, `/data/`, API, WebSocket) straight to the network. A `/media/bgm/act1` request is
-  resolved to the `/assets/audio/bgm/act1.mp3` entry the manifest lists, trying the extensions in the server's order
-  (`mediaCandidates`, `shared/media.js`); the manifest itself always names the real file, because a plain static host
-  (the CDN) cannot resolve `/media/…`. It needs HTTPS (or localhost); on plain HTTP the switch says why it cannot be
-  used instead of failing silently. `updateViaCache: 'none'` matters: it is what makes a new worker (and its module
-  imports) reach the browser on the next reload instead of being served from the HTTP cache.
-- 「清理缓存」 deletes every cache the app owns; turning the switch off stops the downloads and keeps what is cached
-  (still served from the cache by the worker), and the worker is removed once there is nothing left to serve. Once a run
-  has brought the set up to date, the caches of earlier layouts and the entries the manifest no longer lists are
-  dropped. The host therefore has to serve `/resource-sw.js` and never cache it at the edge.
+Import accepts current and older resource ZIP formats. Each entry is checked against its ZIP metadata, content digest,
+size and the current server manifest before it is written to Cache Storage. Only entries whose path and fingerprint
+match the current manifest are stored. An imported partial package remains partial and the manager asks the player to
+import another package. Export creates a ZIP from the resources currently in the browser cache.
 
+The verification manifest is generated by server/resources.js from data/assets.json, optional
+data/local-assets.json, data/local-fx.json and the local fingerprint file data/asset-hashes.json. Every listed
+entry has a 12-hex SHA-1 prefix. Run node tools/asset-hashes.mjs to refresh those fingerprints from installed local
+resources. Entries with synthetic fingerprints are shown in the checklist but cannot authorize a ZIP import.
+
+The complete import package is assembled on the machine that has the full asset library. To install all available
+voice languages and skins first, run the following commands in order:
+
+- node tools/fetch-assets.mjs --voice-all --add-only
+- node tools/install-skins.mjs add-all
+- node tools/asset-hashes.mjs
+- npm run resource:package
+
+The generator creates one importable ZIP in artifacts/stronghold-resource-import-VERSION.zip. It includes every
+current manifest entry, including all installed voices, maps, characters, skins and skill effects. It stops without
+writing a package if any listed file is missing, has a synthetic/stale fingerprint, exceeds 24 MiB, or the resulting
+package would exceed the browser's 2 GiB import limit. Package files are ignored by Git; distribute the generated ZIP
+through the player's chosen file-transfer method and import it from the resource manager.
+
+The client supports at most 50,000 resources, a 32 MiB embedded manifest and 2 GiB compressed or expanded package.
+Import never accepts code, cache indexes or files outside the current manifest. ZIP export and import are loaded
+lazily through the vendored ZIP library. Preloading assets does not provide offline multiplayer gameplay.
+
+The shared service worker still answers /assets/**, /fonts/** and extension-less /media/** requests from its runtime
+cache, supports audio ranges, and passes code, /data/, APIs and WebSocket requests through to the network. It requires
+HTTPS or localhost. Clearing the resource cache deletes the application-owned runtime cache; turning automatic checks
+off keeps cached files. Deployments must serve /resource-sw.js with no-cache.
 ### 离线分析与制作增量资源 ZIP
 
-Deployment ZIP transport packs are documented in [RESOURCE_PACKS.md](RESOURCE_PACKS.md).
-Main no longer ships the optional asset shrink/conversion tool; existing WebP/atlas and HTTP precompression
-read compatibility remains. Generated art/hashes never enter source commits.
+The browser no longer downloads deployment transport packs. The complete local import package is generated with
+npm run resource:package; see RESOURCE_PACKS.md. Main no longer ships the optional asset shrink/conversion tool;
+existing WebP/atlas and HTTP precompression read compatibility remains. Generated art, hashes and ZIP packages never
+enter source commits.
 
 `tools/resource_delta.py` 使用 Python 3.10+ 标准库，对比两个由资源管理窗口导出的 ZIP，
 无需安装依赖，也不将素材解压到磁盘。例如在仓库根目录运行：
@@ -335,8 +187,8 @@ python tools/resource_delta.py `
   不在增量 ZIP 中写入报告或删除指令。
 - 两个原始 ZIP 不变，已有输出和报告拒绝覆盖。流式读写并校验，单次正文读取最多 1 MiB；
   保持 24 MiB 单文件、50,000 资源、32 MiB 清单及 2 GiB 包限制。失败时删除正在写入的不完整输出。
-- 玩家应先导入旧全量包，再导入增量包。现有客户端按**当前服务器**清单指纹复用缓存，
-  并继续下载所选范围内尚缺的资源；已有旧缓存不会因为缺失列表被删除。
+- 玩家应先导入旧全量包，再导入增量包。现有客户端按**当前服务器**清单指纹复用缓存；
+  管理器只报告尚缺资源，不会自动补下载；已有旧缓存不会因为缺失列表被删除。
   增量包不能替代首次安装的全量资源，服务端仍须同步部署当前素材和真实指纹表。
 
 验证脚本及现有导入兼容性：
@@ -1003,5 +855,6 @@ The 40th local token model is the original champagne bomb (`token_10031_swire2_g
 先部署文件/ZIP，再更新清单。允许作为资源缓存的特效 JSON 限于 index、textures、prefabs/*.json、mesh/*.json。
 
 0.3.0 的射击台使用 `mesh/trap_110` 模型；旧本地清单需重新提取该组，缺少时使用已有回退。
-本分支不合入标题“导入素材包”及另起的缓存/SW/`package --assets`；原有资源管理 ZIP 导入/导出与多线路分包保留。
+网站只提供动态资源清单和 ZIP 主动导入/导出；网站分包下载与多线路下载已停用。玩家完整导入包在本机生成，
+官方技能特效、语音、皮肤和地图等是否纳入取决于资源库机器上实际已安装且写入当前清单的文件。
 插件的 `/p/<id>/<hash>/…` 资源身份独立于普通素材 CDN/指纹，不引入上游普通素材的路径哈希改写。

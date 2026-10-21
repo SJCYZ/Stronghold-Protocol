@@ -49,7 +49,6 @@ if [[ -n "$config_file" ]]; then
   assets_base="$(read_config assetsBaseUrl)"
   transfers="$(read_config transfers)"
   checkers="$(read_config checkers)"
-  routes="$(read_config packRoutes)"
   zone_id="$(read_config zoneId)"
   [[ "$(read_config mirror)" != true ]] || mirror=true
   read_config purge > "$work_dir/purge.json"
@@ -60,7 +59,6 @@ else
   assets_base="${ASSETS_CDN_BASE_URL:?Set ASSETS_CDN_BASE_URL or use --config}"
   transfers="${R2_TRANSFERS:-32}"
   checkers="${R2_CHECKERS:-64}"
-  routes="${SP_RESOURCE_PACK_ROUTES:-[]}"
   zone_id="${CF_ZONE_ID:-}"
   # Legacy environment mode retains the documented whole-zone purge.
   printf '%s\n' '{"purge_everything":true}' > "$work_dir/purge.json"
@@ -74,11 +72,13 @@ fi
 
 mkdir -- "$work_dir/data"
 cp -a -- "$repo_root/data/." "$work_dir/data/"
-"$node_bin" "$script_dir/prepare-r2-data.mjs" "$work_dir/data" "$repo_root/public" "$assets_base" "$routes"
+"$node_bin" "$script_dir/prepare-r2-data.mjs" "$work_dir/data" "$repo_root/public" "$assets_base"
 operation=copy
 flags=(--checksum --fast-list --transfers "$transfers" --checkers "$checkers" --retries 3 --stats 10s)
 if $mirror; then operation=sync; flags+=(--delete-after); fi
 if ! $apply; then flags+=(--dry-run); echo 'DRY RUN: no uploads, deletions or cache purge.'; fi
+cleanup_flags=()
+if ! $apply; then cleanup_flags+=(--dry-run); fi
 upload() {
   local source="$1" prefix="$2" cache_control="$3"
   echo "Sync $prefix -> ${target%/}/$prefix"
@@ -86,7 +86,7 @@ upload() {
 }
 # Publish all payloads before data manifests that reference them.
 upload "$repo_root/public/assets" assets 'public, max-age=86400'
-for prefix in fonts i18n resource-packs; do
+for prefix in fonts i18n; do
   if [[ -d "$repo_root/public/$prefix" ]]; then upload "$repo_root/public/$prefix" "$prefix" 'public, max-age=86400'; fi
 done
 if [[ -d "$repo_root/packs" ]]; then
@@ -94,6 +94,13 @@ if [[ -d "$repo_root/packs" ]]; then
   upload "$repo_root/packs" packs 'no-cache'
 fi
 upload "$work_dir/data" data 'no-cache'
+
+# Remove package objects published by older deployments. Keep these targets
+# scoped so cleanup cannot affect other release data.
+echo "Remove obsolete resource packs -> ${target%/}/resource-packs"
+"$rclone_bin" purge "${target%/}/resource-packs" "${rclone_config[@]}" "${cleanup_flags[@]}" --s3-no-check-bucket
+echo "Remove obsolete resource pack index -> ${target%/}/data/resource-packs.json"
+"$rclone_bin" delete "${target%/}/data" "${rclone_config[@]}" "${cleanup_flags[@]}" --s3-no-check-bucket --include '/resource-packs.json'
 
 if $apply; then
   "$curl_bin" --config "$work_dir/curl.conf" --fail-with-body --silent --show-error \

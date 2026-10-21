@@ -7,15 +7,14 @@ R2 没有原生 `rsync` 协议。本项目使用配置了 Cloudflare R2 S3 API �
 public/assets/          -> <R2_TARGET>/assets/
 public/fonts/           -> <R2_TARGET>/fonts/                 (if present)
 public/i18n/            -> <R2_TARGET>/i18n/                  (if present)
-public/resource-packs/  -> <R2_TARGET>/resource-packs/        (if present)
 packs/                  -> <R2_TARGET>/packs/                 (if present)
 data/                   -> <R2_TARGET>/data/
 ```
 
-`data/resource-packs.json` 存在时，其声明的 ZIP 必须存在且大小一致；有 ZIP 时也必须有索引。
 同步前会在临时目录从当前源数据与素材清单生成 `data/resource-manifest.json`，
-并将包 URL 改写到 `ASSETS_CDN_BASE_URL`。完整 `data/` 文件树一起上传，包含
-`data/i18n/`、`local-assets.json`、`local-fx.json` 和 `resource-packs.json`。
+并将素材 URL 改写到 `ASSETS_CDN_BASE_URL`。完整 `data/` 文件树一起上传，包含
+`data/i18n/`、`local-assets.json` 和 `local-fx.json`。旧 `resource-packs.json` 会从同步副本移除，
+资源 ZIP 不上传到网站 CDN。
 
 ## 推荐：部署机使用 JSON 配置
 
@@ -32,12 +31,11 @@ chmod 600 config/r2-sync.json
 公开域名的路径必须与 bucket 的 `prefix` 映射一致。
 
 `cloudflare` 填 Zone ID 和具有该 Zone Cache Purge 权限的 API Token。
-`purgeMode` 默认 `prefixes`，仅清理配置中 CDN 对应的 data、assets、fonts、语言和 ZIP 路径；
+`purgeMode` 默认 `prefixes`，仅清理配置中 CDN 对应的 data、assets、fonts 和语言路径；
 也支持 `hosts`（整个 CDN 主机）或 `everything`（整个 Zone）。API 权限/套餐不支持所选方式时，
 脚本报错退出；不会自动扩大清理范围。两个 CDN 主机应属于配置的同一 Zone。
 
-`sync.transfers` / `sync.checkers` 默认 32 / 64；`sync.packRoutes` 沿用
-`SP_RESOURCE_PACK_ROUTES` 的有序线路数组格式。`sync.mirror` 默认 false。
+`sync.transfers` / `sync.checkers` 默认 32 / 64；`sync.mirror` 默认 false。
 
 `config/r2-sync.json` 已被 Git 和 Docker 构建上下文忽略。脚本在权限受限的临时目录生成
 rclone/curl 配置，退出后删除，不修改已有 rclone remote，不将凭据放进命令参数。
@@ -51,7 +49,7 @@ bash scripts/sync-to-r2.sh --apply
 bash scripts/sync-to-r2.sh --config /srv/private/r2-sync.json --apply
 ```
 
-全部素材、字体、语言包和 ZIP 成功后才上传 data，最后清 CDN 缓存。任一步失败立即退出；
+全部素材、字体和语言包成功后才上传 data，最后清 CDN 缓存。任一步失败立即退出；
 上传失败不执行缓存清理。缓存清理失败也返回非零状态，修复权限后可重复执行补齐。
 普通模式不删除远端对象；`--mirror` 或 `sync.mirror: true` 会删除各同步前缀中本地不存在的对象。
 
@@ -114,7 +112,7 @@ R2_TARGET=r2:stronghold/releases/2026-10-16 \
 ```
 
 客户端所有 `/data/*.json`、`/data/i18n/*.json` 和游戏文本包 `/packs/<id>/texts/*.json`
-均使用运行时 `DATA_CDN`，包含静态数据、资源清单、ZIP 包索引、本地素材/特效清单。
+均使用运行时 `DATA_CDN`，包含静态数据、资源清单、本地素材/特效清单。
 `/js/asset-cdn.js` 与服务端自己的数据读取仍留在游戏源站；服务器仍以本地 `data/`
 启动、校验和运行。UI 语言 `/i18n/*.json` 仍跟随 `ASSETS_CDN`。
 

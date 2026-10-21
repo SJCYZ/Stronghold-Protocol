@@ -362,10 +362,7 @@ function ScreenCrashed({ error, reset }) {
 
 function ResourceManagerHost() {
   const settings = useSettings();
-  return html`<${ResourceHost} enabled=${settings.preload} optional=${settings.preloadOptional} voiceLang=${settings.preloadVoiceLang} skins=${settings.preloadSkins}
-    onSkins=${(preloadSkins) => updateSettings({ preloadSkins })}
-    onVoiceLang=${(preloadVoiceLang) => updateSettings({ preloadVoiceLang })}
-    onChange=${(preload) => updateSettings({ preload })} onOptional=${(preloadOptional) => updateSettings({ preloadOptional })} />`;
+  return html`<${ResourceHost} enabled=${settings.preload} onChange=${(preload) => updateSettings({ preload })} />`;
 }
 
 function App() {
@@ -509,15 +506,15 @@ async function boot() {
 }
 
 /**
- * Runtime resource caching is installed after the first paint; bulk asset preload remains off by default, so a
- * player who never enables it downloads no complete manifest. The settings panel writes the switch; main.js mirrors it into
+ * Runtime resource caching is installed after the first paint; only manifest and local-cache checks are automatic.
+ * The settings panel writes the check switch; main.js mirrors it into
  * public/js/resources/index.js (idempotent: the settings store also fires for volume changes).
  */
 function installResourcePreload() {
   import('./resources/index.js')
     .then((r) => {
       bindResourceCombat(store, r, err => console.warn('[resources] combat sync failed', err));
-      const apply = (s) => { r.syncResources(!!s.preload, !!s.preloadOptional, s.preloadVoiceLang, !!s.preloadSkins).catch((err) => console.warn('[resources] sync failed', err)); };
+      const apply = (s) => { r.syncResources(!!s.preload).catch((err) => console.warn('[resources] sync failed', err)); };
       apply(settingsStore.get());
       settingsStore.subscribe(apply);
     })

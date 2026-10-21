@@ -5,10 +5,25 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { validateResourcePacks, RESOURCE_PACK_MAX_BYTES, resourcePackPercent } from '../../public/js/resources/common.js';
-import { readTransportPack } from '../../public/js/resources/archive.js';
+import { ARCHIVE_MANIFEST, importResourceZip, readTransportPack } from '../../public/js/resources/archive.js';
 import { Sha1Stream } from '../../public/js/resources/sha1Stream.js';
 import { CACHE_NAME, MANIFEST_URL } from '../../public/js/resources/common.js';
 import { fetchTransportPack } from '../../public/js/resources/transport.js';
+import { ResourceStore } from '../../public/js/resources/store.js';
+
+class MemoryCache {
+  entries = new Map();
+  async put(key, response) { this.entries.set(typeof key === 'string' ? key : key.url, response.clone()); }
+  async match(key) { return this.entries.get(typeof key === 'string' ? key : key.url)?.clone(); }
+  async keys() { return [...this.entries.keys()].map((url) => new Request(url)); }
+  async delete(key) { return this.entries.delete(typeof key === 'string' ? key : key.url); }
+}
+class MemoryCaches {
+  entries = new Map();
+  async open(name) { if (!this.entries.has(name)) this.entries.set(name, new MemoryCache()); return this.entries.get(name); }
+  async keys() { return [...this.entries.keys()]; }
+  async delete(name) { return this.entries.delete(name); }
+}
 
 test('resource pack index validation accepts only 16 MB same-origin ZIP metadata', () => {
   const good = { format: 'stronghold-resource-pack-index', version: 1, maxBytes: RESOURCE_PACK_MAX_BYTES,
@@ -73,7 +88,7 @@ test('Python packs are byte-stable across clocks, global versions, input orderin
       + 'p.start(); runpy.run_path(script,run_name="__main__")';
     const result = spawnSync(process.env.PYTHON || 'python', ['-c', wrapper, String(clock), path.resolve('tools/resource_packs.py'),
       '--manifest', manifestPath, '--assets-root', assets, '--output', output, '--index', indexPath], { encoding: 'utf8' });
-    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.status, 0, result.stderr || result.error?.message || result.stdout);
     const index = JSON.parse(await readFile(indexPath, 'utf8'));
     const bytes = new Map();
     for (const pack of index.packs) bytes.set(pack.id, await readFile(path.join(output, path.basename(pack.url))));
@@ -133,7 +148,7 @@ test('Python packs separate English/Korean voices and optional official FX witho
   await writeFile(manifestPath, JSON.stringify({ version: 'scope', files }));
   const result = spawnSync(process.env.PYTHON || 'python', [path.resolve('tools/resource_packs.py'),
     '--manifest', manifestPath, '--assets-root', assets, '--output', path.join(root, 'packs'), '--index', indexPath], { encoding: 'utf8' });
-  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.status, 0, result.stderr || result.error?.message || result.stdout);
   const index = JSON.parse(await readFile(indexPath, 'utf8'));
   assert.equal(index.packs.length, 4);
   for (const [url, tier, group] of entries) {
@@ -166,7 +181,7 @@ test('Python pack builder keeps every pack below 16 MB and records verified reso
   const script = path.resolve('tools/resource_packs.py');
   const result = spawnSync(process.env.PYTHON || 'python', [script, '--manifest', manifestPath,
     '--assets-root', assets, '--output', path.join(root, 'resource-packs'), '--index', indexPath], { encoding: 'utf8' });
-  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.status, 0, result.stderr || result.error?.message || result.stdout);
   const index = JSON.parse(await readFile(indexPath, 'utf8'));
   assert.equal(index.maxBytes, RESOURCE_PACK_MAX_BYTES);
   assert.equal(index.packs.length, 1);
@@ -216,7 +231,7 @@ test('Python pack builder keeps every pack below 16 MB and records verified reso
     assert.deepEqual(payload.map(({ row }) => row.url), ['/assets/ui/b.png']);
   });
 
-  await t.test('controller overlaps two ZIP requests and continues downloading during cache writes', async (t) => {
+  await t.test('controller ignores deployment pack metadata and fetches only the manifest', async (t) => {
     const saved = new Map(['fetch', 'caches', 'navigator', 'location', 'isSecureContext']
       .map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
     t.after(() => {
@@ -226,68 +241,76 @@ test('Python pack builder keeps every pack below 16 MB and records verified reso
       }
     });
     const origin = 'https://pack.example';
-    const entries = new Map();
-    let requests = 0;
-    let heldWrite = false;
-    const writeGate = Promise.withResolvers();
-    const writeStarted = Promise.withResolvers();
-    const secondRequest = Promise.withResolvers();
-    const cache = {
-      async match(key) { return entries.get(typeof key === 'string' ? key : key.url)?.clone(); },
-      async keys() { return [...entries.keys()].map((url) => new Request(url)); },
-      async delete(key) { return entries.delete(typeof key === 'string' ? key : key.url); },
-      async put(key, value) {
-        if (String(key).includes('/assets/') && !heldWrite) {
-          heldWrite = true;
-          writeStarted.resolve();
-          await writeGate.promise;
-        }
-        entries.set(typeof key === 'string' ? key : key.url, value.clone());
-      },
-    };
-    const mirrorRequests = [];
-    const packs = [1, 2, 3].map((n) => ({ ...index.packs[0], id: `ui-${n}`, url: `/resource-packs/ui-${n}.zip`,
-      urls: [`https://mirror.example/data/ui-${n}.zip`] }));
+    const cache = { async match() { return undefined; }, async keys() { return []; }, async delete() { return true; } };
+    const packs = [{ ...index.packs[0], url: '/resource-packs/ui.zip', urls: ['https://mirror.example/data/ui.zip'] }];
+    const requested = [];
     for (const [key, value] of Object.entries({
       isSecureContext: true, location: { origin },
       caches: { open: async () => cache, keys: async () => [CACHE_NAME], delete: async () => true },
       navigator: { serviceWorker: { register: async () => ({}), getRegistrations: async () => [] } },
       fetch: async (url) => {
+        requested.push(url);
         if (url === MANIFEST_URL) return Response.json({ format: 1, version: 'packs', files: manifest.files, packs });
-        if (url.startsWith('https://mirror.example/')) {
-          mirrorRequests.push(url);
-          return new Response(null, { status: 503 });
-        }
-        assert.match(url, /^\/resource-packs\//, 'no per-file fallback on a valid transport pack');
-        if (++requests === 1) await secondRequest.promise;
-        else if (requests === 2) secondRequest.resolve();
-        else {
-          await writeStarted.promise;
-          assert.equal(heldWrite, true, 'third request starts while first cache write is held');
-          writeGate.resolve();
-        }
-        return new Response(zipBytes);
+        return new Response(null, { status: 404 });
       },
     })) Object.defineProperty(globalThis, key, { configurable: true, value });
-    const controller = await import('../../public/js/resources/index.js?pack-pipeline-regression');
-    const progress = [];
-    const unsubscribe = controller.subscribeResources((s) => {
-      if (s.packProgress) progress.push(s.packProgress);
-    });
-    try {
-      await controller.syncResources(true, false);
-      assert.equal(requests, 3);
-      assert.equal(mirrorRequests.length, 3);
-      assert.equal(controller.resourceState().selectionComplete, true);
-      assert.ok(progress.some((p) => p.activeDownloads === 2));
-      assert.ok(progress.some((p) => p.importing && p.activeDownloads > 0));
-      assert.ok(await cache.match(`${origin}/assets/ui/a.png`));
-    } finally {
-      writeGate.resolve();
-      unsubscribe();
-      await controller.syncResources(false);
-    }
+    const controller = await import('../../public/js/resources/index.js?manifest-only-pack-check');
+    await controller.syncResources(true);
+    assert.deepEqual(requested, [MANIFEST_URL]);
+    assert.equal(controller.resourceState().phase, 'incomplete');
+    await controller.syncResources(false);
   });
+});
+
+test('Python full package builder emits one importable ZIP covering voices, maps, characters, skins and effects', async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), 'sp-resource-full-import-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const assets = path.join(root, 'public');
+  const entries = [
+    '/assets/audio/voice/cn/char_test/line.mp3',
+    '/assets/audio/voice/jp/char_test/line.mp3',
+    '/assets/audio/voice/en/char_test/line.mp3',
+    '/assets/audio/voice/kr/char_test/line.mp3',
+    '/assets/local/map/scene/act1autochess_m01/scene.bin',
+    '/assets/local/map/autochess/materials.json',
+    '/assets/char/char_test/portrait.png',
+    '/assets/skins/char_test/portrait.webp',
+    '/assets/local/fx/index.json',
+    '/assets/local/fx/prefabs/skill_probe.json',
+    '/assets/local/fx/mesh/skill_probe.json',
+    '/assets/local/fx/tex/half/skill_probe.webp',
+  ];
+  const crypto = await import('node:crypto');
+  const files = [];
+  for (const [index, url] of entries.entries()) {
+    const body = Buffer.from(`resource-${index}-${url}`);
+    const file = path.join(assets, decodeURIComponent(url.slice(1)));
+    await mkdir(path.dirname(file), { recursive: true });
+    await writeFile(file, body);
+    files.push({ url, tier: url.includes('/audio/') || url.includes('/local/fx/') ? 2 : 1,
+      size: body.length, hash: crypto.createHash('sha1').update(body).digest('hex').slice(0, 12) });
+  }
+  const manifestPath = path.join(root, 'manifest.json');
+  const output = path.join(root, 'artifacts', 'stronghold-resources-full.zip');
+  await writeFile(manifestPath, JSON.stringify({ version: 'full-fixture', files }));
+  const result = spawnSync(process.env.PYTHON || 'python', [path.resolve('tools/resource_packs.py'),
+    '--manifest', manifestPath, '--assets-root', assets, '--full-output', output], { encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr || result.error?.message || result.stdout);
+
+  const caches = new MemoryCaches();
+  const store = new ResourceStore({ version: 'full-fixture', files }, { caches, origin: 'https://game.example' });
+  const imported = await importResourceZip(store, new Blob([await readFile(output)]));
+  assert.equal(imported.packageCount, files.length);
+  assert.equal(imported.imported, files.length);
+  assert.equal(imported.skippedPackage, 0);
+  assert.equal((await store.status()).count, files.length);
+
+  const { BlobReader, ZipReader } = await import('../../public/vendor/zip.module.js');
+  const zip = new ZipReader(new BlobReader(new Blob([await readFile(output)])), { useWebWorkers: false });
+  const names = (await zip.getEntries()).map((entry) => entry.filename);
+  assert.equal(names.length, files.length + 1);
+  assert.ok(names.includes(ARCHIVE_MANIFEST));
+  await zip.close();
 });
 
 test('Python pack builder decodes canonical bracket URLs when reading local files', async (t) => {
@@ -308,7 +331,7 @@ test('Python pack builder decodes canonical bracket URLs when reading local file
   const result = spawnSync(process.env.PYTHON || 'python', [path.resolve('tools/resource_packs.py'),
     '--manifest', manifestPath, '--assets-root', assets, '--output', path.join(root, 'packs'),
     '--index', path.join(data, 'resource-packs.json')], { encoding: 'utf8' });
-  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.status, 0, result.stderr || result.error?.message || result.stdout);
   const index = JSON.parse(await readFile(path.join(data, 'resource-packs.json'), 'utf8'));
   assert.equal(index.packs[0].files[0].url, '/assets/local/map/fx/%5Bopt%5Dx.webp');
 });

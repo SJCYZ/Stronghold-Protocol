@@ -50,7 +50,6 @@ import fs from 'node:fs';
 import { createHash } from 'node:crypto';
 import { rewriteAssetPaths } from '../../shared/cdn.js';
 import { createResourceIndex, RESOURCE_MANIFEST_FILE, RESOURCE_PACK_MANIFEST_FILE } from '../resources.js';
-import { routeResourcePacks } from '../../shared/resourcePackRoutes.js';
 import path from 'node:path';
 import { MEDIA_PREFIX } from '../../shared/media.js';
 import { ROOT, noopLog } from './config.js';
@@ -102,13 +101,13 @@ const CS_FILE = /^\/cs\/([0-9a-f]{16})\/([A-Za-z0-9._\/-]{1,200})$/;
  *   packs: the server pack registry; runtime CDN and Vite behavior remain branch-owned.
  * @returns {(req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse, rawPath: string, query: string) => Promise<void>}
  */
-export function createStaticHandler({ publicDir, dataDir, sharedDir, simDir = path.join(ROOT, 'server', 'sim'), packsDir = path.join(ROOT, 'packs'), pluginsDir = path.join(path.dirname(path.resolve(packsDir)), 'plugins'), packs = null, content = null, visual = null, contents = null, log = noopLog, cdnBase = '', dataCdnBase = '', resourcePackRoutes = [], clientBuild = true, views = null }) {
+export function createStaticHandler({ publicDir, dataDir, sharedDir, simDir = path.join(ROOT, 'server', 'sim'), packsDir = path.join(ROOT, 'packs'), pluginsDir = path.join(path.dirname(path.resolve(packsDir)), 'plugins'), packs = null, content = null, visual = null, contents = null, log = noopLog, cdnBase = '', dataCdnBase = '', clientBuild = true, views = null }) {
   const registry = packs || createPluginRegistry({ publicDir, dataDir, packsDir, pluginsDir }, { log: /** @type {any} */ (log) });
   const cdn = typeof cdnBase === 'string' ? cdnBase : '';
   const builtIndex = path.join(publicDir, 'build', 'index.html');
   const useBuiltClient = clientBuild && fs.existsSync(builtIndex);
   // the preload manifest (docs/ASSETS.md「Preload」): built on first request, cached until the manifests change
-  const resources = createResourceIndex({ dataDir, publicDir, cdnBase: cdn, resourcePackRoutes, rewrite: (v) => (cdn ? rewriteAssetPaths(v, cdn) : v), log });
+  const resources = createResourceIndex({ dataDir, publicDir, cdnBase: cdn, rewrite: (v) => (cdn ? rewriteAssetPaths(v, cdn) : v), log });
   /** @type {Map<string, { mtimeMs: number, size: number, body: Buffer }>} rewritten manifests (per file path) */
   const cdnCache = new Map();
   const cdnPending = new Map();
@@ -159,6 +158,11 @@ export function createStaticHandler({ publicDir, dataDir, sharedDir, simDir = pa
       sendError(req, res, 400, '请求地址无效 · Bad request');
       return;
     }
+    const lowerPath = decoded.toLowerCase();
+    if (lowerPath === `/data/${RESOURCE_PACK_MANIFEST_FILE}` || lowerPath === '/resource-packs' || lowerPath.startsWith('/resource-packs/')) {
+      sendError(req, res, 404, '页面不存在 · Not found');
+      return;
+    }
     if (useBuiltClient && (decoded === '/' || decoded === '/index.html')) {
       await serveIndex(req, res, builtIndex, await fsp.stat(builtIndex), ['build', 'index.html'], query);
       return;
@@ -198,38 +202,6 @@ export function createStaticHandler({ publicDir, dataDir, sharedDir, simDir = pa
       headers['Content-Length'] = body.length;
       res.writeHead(200, headers);
       res.end(req.method === 'HEAD' ? undefined : body);
-      return;
-    }
-    if (decoded.toLowerCase() === `/data/${RESOURCE_PACK_MANIFEST_FILE}`) {
-      const file = path.join(dataDir, RESOURCE_PACK_MANIFEST_FILE);
-      try {
-        const raw = await fsp.readFile(file);
-        const st = await fsp.stat(file);
-        const rawHash = createHash('sha256').update(raw).digest('hex');
-        if (new URLSearchParams(query).get('v') === rawHash.slice(0, 8)) {
-          const etag = `"resource-packs-${rawHash}"`;
-          const headers = { 'Content-Type': MIME['.json'], 'Cache-Control': 'no-cache', ETag: etag,
-            'Last-Modified': st.mtime.toUTCString(), 'Content-Length': raw.length };
-          if (isNotModified(req, etag, st.mtime)) { res.writeHead(304, headers); res.end(); return; }
-          res.writeHead(200, headers);
-          res.end(req.method === 'HEAD' ? undefined : raw);
-          return;
-        }
-        const doc = JSON.parse(raw.toString('utf8'));
-        if (doc.format === 'stronghold-resource-pack-index' && doc.version === 1) {
-          doc.packs = routeResourcePacks(doc.packs, cdn, resourcePackRoutes);
-        }
-        const body = Buffer.from(JSON.stringify(doc));
-        const etag = `"resource-packs-${createHash('sha256').update(body).digest('hex')}"`;
-        const headers = { 'Content-Type': MIME['.json'], 'Cache-Control': 'no-cache', ETag: etag,
-          'Last-Modified': st.mtime.toUTCString(), 'Content-Length': body.length };
-        if (isNotModified(req, etag, st.mtime)) { res.writeHead(304, headers); res.end(); return; }
-        res.writeHead(200, headers);
-        res.end(req.method === 'HEAD' ? undefined : body);
-      } catch (error) {
-        if (error?.code === 'ENOENT') sendError(req, res, 404, '页面不存在 · Not found');
-        else { log.error('[resources] cannot read resource pack index', error); sendError(req, res, 500, '服务器内部错误 · Internal error'); }
-      }
       return;
     }
     // the plugin studio's page is never a static file (server/studio/index.js isStudioPath: any spelling of /studio/)

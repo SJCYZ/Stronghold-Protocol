@@ -1,6 +1,5 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { parseResourcePackRoutes } from '../shared/resourcePackRoutes.js';
 
 const [configPath, tempDir] = process.argv.slice(2);
 if (!configPath || !tempDir) throw new Error('usage: prepare-r2-config.mjs <config.json> <temporary-directory>');
@@ -33,7 +32,6 @@ const purgeMode = cloudflare.purgeMode || 'prefixes';
 for (const key of ['transfers', 'checkers']) {
   if (sync[key] != null && (!Number.isInteger(sync[key]) || sync[key] < 1 || sync[key] > 256)) throw new Error(`sync.${key} must be an integer from 1 to 256`);
 }
-const packRoutes = parseResourcePackRoutes(sync.packRoutes);
 if (!['prefixes', 'hosts', 'everything'].includes(purgeMode)) throw new Error('cloudflare.purgeMode must be prefixes, hosts or everything');
 const baseInfo = (value) => {
   const url = new URL(value);
@@ -75,7 +73,6 @@ await fs.writeFile(runtimePath, JSON.stringify({
   transfers: sync.transfers ?? 32,
   checkers: sync.checkers ?? 64,
   mirror: sync.mirror === true,
-  packRoutes,
   purge,
   rclonePath,
   curlPath,

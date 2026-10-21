@@ -38,7 +38,8 @@ test('R2 upload stages generated indexes, copies every data/art prefix, then pur
   await writeFile(rclone, `#!/usr/bin/env bash
 printf '%s\\n' "RCLONE_CALL:$*"
 if [[ -n "\${MOCK_UPLOAD_FAIL:-}" ]]; then exit 23; fi
-if [[ "$2" == */data ]]; then
+if [[ -n "\${MOCK_CLEANUP_FAIL:-}" && ( "$1" == purge || "$1" == delete ) ]]; then exit 24; fi
+if [[ "$1" == copy && "$2" == */data ]]; then
   find "$2" -maxdepth 1 -type f -printf 'STAGED_DATA_FILE:%f\\n'
 fi
 `);
@@ -67,27 +68,32 @@ printf '%s\\n' '{"success":true,"result":{"id":"purge"}}'
   const result = run('--apply');
   assert.equal(result.status, 0, result.stderr);
   const calls = result.stdout.split(/\r?\n/).filter(line => line.startsWith('RCLONE_CALL:'));
-  assert.equal(calls.length, 4, result.stdout);
+  assert.equal(calls.length, 5, result.stdout);
   assert.ok(calls.some(line => line.includes('public/assets') && line.includes('r2:game/release/assets')));
   assert.ok(calls.some(line => line.includes('public/fonts') && line.includes('r2:game/release/fonts')));
-  assert.ok(calls.some(line => line.includes('public/resource-packs') && line.includes('r2:game/release/resource-packs')));
   assert.ok(calls.some(line => line.includes('/data') && line.includes('r2:game/release/data')));
-  assert.ok(calls.every(line => line.startsWith('RCLONE_CALL:copy ')), 'normal upload never deletes remote files');
+  assert.ok(calls.slice(0, 3).every(line => line.startsWith('RCLONE_CALL:copy ')), 'normal upload never deletes remote files');
+  assert.ok(calls.some(line => line.startsWith('RCLONE_CALL:purge r2:game/release/resource-packs')));
+  assert.ok(calls.some(line => line.startsWith('RCLONE_CALL:delete r2:game/release/data') && line.includes('--include /resource-packs.json')));
   assert.ok(result.stdout.indexOf('RCLONE_CALL:') < result.stdout.indexOf('Cloudflare cache purge accepted'), 'purge follows all uploads');
   assert.match(result.stdout, /STAGED_DATA_FILE:resource-manifest\.json/);
-  assert.match(result.stdout, /STAGED_DATA_FILE:resource-packs\.json/);
+  assert.doesNotMatch(result.stdout, /STAGED_DATA_FILE:resource-packs\.json/);
   assert.match(result.stdout, /Cloudflare cache purge accepted/);
   assert.equal(existsSync(path.join(data, 'resource-manifest.json')), false, 'generated index never mutates source data');
 
   const mirror = run('--apply', '--mirror');
   assert.equal(mirror.status, 0, mirror.stderr);
   const mirrorCalls = mirror.stdout.split(/\r?\n/).filter(line => line.startsWith('RCLONE_CALL:'));
-  assert.equal(mirrorCalls.length, 4);
-  assert.ok(mirrorCalls.every(line => line.startsWith('RCLONE_CALL:sync ') && line.includes('--delete-after')));
+  assert.equal(mirrorCalls.length, 5);
+  assert.ok(mirrorCalls.slice(0, 3).every(line => line.startsWith('RCLONE_CALL:sync ') && line.includes('--delete-after')));
+  assert.ok(mirrorCalls[3].startsWith('RCLONE_CALL:purge r2:game/release/resource-packs'));
+  assert.ok(mirrorCalls[4].startsWith('RCLONE_CALL:delete r2:game/release/data') && mirrorCalls[4].includes('--include /resource-packs.json'));
 
   const preview = run();
   assert.equal(preview.status, 0, preview.stderr);
   assert.match(preview.stdout, /--dry-run/);
+  assert.match(preview.stdout, /RCLONE_CALL:purge r2:game\/release\/resource-packs .*--dry-run/);
+  assert.match(preview.stdout, /RCLONE_CALL:delete r2:game\/release\/data .*--dry-run .*--include \/resource-packs\.json/);
   assert.doesNotMatch(preview.stdout, /Cloudflare cache purge accepted/);
 
   env.MOCK_UPLOAD_FAIL = '1';
@@ -95,6 +101,12 @@ printf '%s\\n' '{"success":true,"result":{"id":"purge"}}'
   assert.equal(failed.status, 23, failed.stderr);
   assert.doesNotMatch(failed.stdout, /Cloudflare cache purge accepted/);
   delete env.MOCK_UPLOAD_FAIL;
+
+  env.MOCK_CLEANUP_FAIL = '1';
+  const failedCleanup = run('--apply');
+  assert.equal(failedCleanup.status, 24, failedCleanup.stderr);
+  assert.doesNotMatch(failedCleanup.stdout, /Cloudflare cache purge accepted/);
+  delete env.MOCK_CLEANUP_FAIL;
 
   env.MOCK_PURGE_FAIL = '1';
   const rejectedPurge = run('--apply');
@@ -111,12 +123,10 @@ printf '%s\\n' '{"success":true,"result":{"id":"purge"}}'
   const configured = run('--config', configPath, '--apply');
   assert.equal(configured.status, 0, configured.stderr);
   assert.match(configured.stdout, /--config .*rclone\.conf/);
+  assert.match(configured.stdout, /RCLONE_CALL:purge r2:game\/release\/resource-packs/);
   assert.doesNotMatch(configured.stdout + configured.stderr, /mock-access|mock-secret|mock-token/);
 
-  await rm(path.join(packs, 'ui-01-deadbeef1234.zip'));
-  const missingPack = run('--apply');
-  assert.notEqual(missingPack.status, 0);
-  assert.doesNotMatch(missingPack.stdout, /RCLONE_CALL:|Cloudflare cache purge accepted/);
+  assert.equal(existsSync(path.join(packs, 'ui-01-deadbeef1234.zip')), true, 'obsolete packages are not published or deleted by the sync tool');
 });
 
 test('R2 config writes usable private INI credentials and scoped purge payload', async t => {
@@ -127,7 +137,7 @@ test('R2 config writes usable private INI credentials and scoped purge payload',
     r2: { accountId: 'b'.repeat(32), accessKeyId: 'test-access', secretAccessKey: 'test-secret', bucket: 'game' },
     cdn: { dataBaseUrl: 'https://data.example/game', assetsBaseUrl: 'https://assets.example/game' },
     cloudflare: { zoneId: 'a'.repeat(32), apiToken: 'test-token' },
-    sync: { packRoutes: ['mirror.example/resource-packs'] },
+    sync: {},
   };
   await writeFile(configPath, JSON.stringify(config));
   const run = () => spawnSync(process.execPath, ['scripts/prepare-r2-config.mjs', configPath, root], { encoding: 'utf8' });
@@ -136,9 +146,10 @@ test('R2 config writes usable private INI credentials and scoped purge payload',
   assert.match(ini, /^type = s3$/m);
   assert.match(ini, /^secret_access_key = test-secret$/m);
   const runtime = JSON.parse(await readFile(path.join(root, 'runtime.json'), 'utf8'));
-  assert.deepEqual(runtime.packRoutes, ['https://mirror.example/resource-packs/{file}']);
+  assert.equal(runtime.packRoutes, undefined);
   assert.ok(runtime.purge.prefixes.includes('data.example/game/data/'));
   assert.ok(runtime.purge.prefixes.includes('assets.example/game/i18n/'));
+  assert.ok(runtime.purge.prefixes.includes('assets.example/game/resource-packs/'));
   assert.equal(runtime.purge.purge_everything, undefined);
   config.r2.secretAccessKey = 'secret\n[other]';
   await writeFile(configPath, JSON.stringify(config));

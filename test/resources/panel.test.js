@@ -1,5 +1,4 @@
-// test/resources/panel.test.js — the two faces of the preload UI (public/js/ui/resourcePanel.js, docs/ASSETS.md
-// 「Preload」): the numbers both render, and the wiring that puts the launcher in the title screen's bottom-right corner
+// test/resources/panel.test.js — the resource checklist UI and its title-screen/settings entry points
 // (the settings modal is only reachable inside a match, so the home screen needs its own entry).
 
 import { test, describe } from 'node:test';
@@ -66,20 +65,23 @@ describe('where the preload is reachable', () => {
     assert.match(css, /\.res-pill \{/, 'the pill has its own styling');
   });
 
-  test('both entry points open the shared manager with resource tiers and ZIP actions', () => {
+  test('the shared manager shows the manifest checklist and manual ZIP import/export only', () => {
     const panel = read('public/js/ui/resourcePanel.js');
     assert.equal((panel.match(/onClick=\$\{openResources\}/g) || []).length, 2);
     const main = read('public/js/main.js');
     assert.match(main, /<\$\{ResourceManagerHost\} \/>/);
-    assert.match(panel, /title=\$\{t\('预载资源管理'\)\}/);
+    assert.match(panel, /title=\$\{t\('资源清单与导入'\)\}/);
     assert.match(panel, /tier=\$\{1\}/);
     assert.match(panel, /tier=\$\{2\}/);
     assert.match(panel, /导入 ZIP/);
     assert.match(panel, /导出 ZIP/);
-    assert.match(panel, /importResources\(file, \{ onImported: \(\) => onChange\(true\) \}\)/,
-      'successful imports persist the preload switch through the application settings callback');
+    assert.match(panel, /importResources\(file\)/, 'ZIP import does not enable automatic checks');
+    assert.match(panel, /不提供批量资源下载/);
+    assert.match(panel, /主动导入/);
+    assert.doesNotMatch(panel, /前往下载|继续下载|开始预载|正在下载/);
     assert.match(panel, /st\.worker/);
     assert.match(panel, /onChange\(false\)/);
+    assert.match(panel, /检查资源/);
     assert.equal(/可离线进入对局|断网[^。]*可用/.test(panel), false);
   });
 });

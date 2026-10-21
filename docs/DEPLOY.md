@@ -216,7 +216,7 @@ node scripts/deploy-compose.mjs \
   --apply
 ```
 
-如果希望部署脚本同时自动补齐素材并生成 16MB 分类资源包（不转换图片/音频）：
+如果希望部署脚本同时自动补齐素材并生成资源校验清单（不转换图片/音频）：
 
 ```bash
 node scripts/deploy-compose.mjs \
@@ -228,18 +228,15 @@ node scripts/deploy-compose.mjs \
 ```
 
 `--prepare-assets` 会先运行 `tools/setup.mjs --yes --no-local --no-scenes` 下载/续传公开
-素材，再在部署备份目录创建素材副本作为隔离候选、重算
-`asset-hashes.json`、生成运行时资源清单和不超过 16,000,000 bytes 的分类 ZIP。
-所有步骤成功后才发布候选清单和分包，并同步静态 CDN；素材下载/续传沿用 setup，
-不做图片/音频转换，也不覆盖已有原件为新编码。Python 默认使用 Linux 的 `python3`、
-Windows 的 `python`，分包仅需 Python 标准库，可用 `--python /path/to/python` 指定环境。
+素材，再在部署备份目录创建素材副本作为隔离候选、重算 `asset-hashes.json` 并生成运行时资源校验清单。
+所有步骤成功后才发布候选清单并同步静态 CDN；此流程不生成或发布玩家导入 ZIP，不做图片/音频转换，
+也不覆盖已有原件为新编码。
 
 脚本执行顺序：
 
 1. `docker compose config --quiet` 校验 Compose；
 2. 记录旧游戏容器镜像并备份 Compose、公告、关键 data 清单；
-3. 同步 `data` 到 `srv`、`public/assets` 到 `assets`、字体到 `fonts`，可选同步
-   `public/resource-packs` 到 `resource-packs`；
+3. 同步 `data` 到 `srv`、`public/assets` 到 `assets`、字体到 `fonts`；
 4. `docker compose build --pull stronghold`；
 5. 只启动/重建 `stronghold`，Redis 仅确保启动和健康，不删除卷；
 6. 轮询 `http://127.0.0.1:3080/healthz`；
@@ -249,8 +246,8 @@ Windows 的 `python`，分包仅需 Python 标准库，可用 `--python /path/to
 
 - `--pull`：部署前执行 `git pull --ff-only`；
 - `--no-build`：跳过镜像构建；
-- `--skip-data`、`--skip-assets`、`--skip-packs`：跳过对应同步；
-- `--data-target`、`--assets-target`、`--fonts-target`、`--packs-target`：分别指定目标目录；
+- `--skip-data`、`--skip-assets`：跳过对应同步；
+- `--data-target`、`--assets-target`、`--fonts-target`：分别指定目标目录；
 - `--health URL`、`--wait 180`：修改健康检查地址和超时；
 - `--backup-root DIR`：修改备份目录。
 
@@ -259,7 +256,8 @@ Redis 数据卷。你的 Compose 中 `./public/assets:/app/public/assets:ro` 和
 会覆盖镜像内对应目录，因此必须同步正确的宿主机素材和公告目录；脚本只同步 CDN 静态目录，
 不会擅自修改这些挂载源。
 
-资源分包发布见 [预载资源传输分包](RESOURCE_PACKS.md)；主分支不再包含通用 assets shrink 转换工具。
+玩家完整导入 ZIP 由本机完整素材库单独生成，部署脚本不会发布该 ZIP；详见 [RESOURCE_PACKS.md](RESOURCE_PACKS.md)。
+主分支不再包含通用 assets shrink 转换工具。
 升级前不要移动线上 PNG/atlas 或原二进制；新客户端与新素材先发布，再切换匹配的三个素材
 清单。Node 支持资源同目录的预压缩 `.br/.gz`，但保留原件用于 identity/Range/指纹。
 这不替代实际 Nginx/CDN 配置和验证，也不要求玩家清空所有旧缓存。
@@ -371,8 +369,7 @@ https / wss 说明：页面通过 https 打开时客户端自动连接 `wss://�
 
 ### 2.5 本分支素材管理
 
-标题页统一使用本分支预载资源面板；不提供上游“下载完整素材”、“导入素材包”或 `tools/package.mjs --assets`。
-已有资源管理窗口的 ZIP 导入/导出、分包预载、缓存指纹和多线路下载继续有效，详见 [RESOURCE_PACKS.md](RESOURCE_PACKS.md)。
+资源管理面板只提供校验清单和主动 ZIP 导入/导出，不提供网站批量下载。缺少的游戏资源仍在正常使用时按需请求并缓存；完整导入包由本机资源库生成，详见 [RESOURCE_PACKS.md](RESOURCE_PACKS.md)。
 
 ## 3. Docker
 
@@ -499,7 +496,6 @@ docker run -d --name stronghold -p 3000:3000 --restart unless-stopped \
 - `public/vendor/` 仍由游戏服务器自己提供。资源更新后用现有 `scripts/sync-to-r2.sh --apply` 上传并清理对应 CDN 前缀缓存。
 - 没设置该变量时行为完全不变（服务器照旧自己提供 `/assets/…`），设置后本地 `/assets/` 仍然可用，可随时回退。
 - 只想换目录名 / 走同源反代前缀也行：`SP_ASSETS_CDN=/cdn`。
-- ZIP 资源包可独立配置 `SP_RESOURCE_PACK_ROUTES`（有序 URL/目录模板 JSON 数组），自动逐条故障切换，当前素材 CDN 始终作为最后一条 ZIP 线路；配置、路径重写与 CORS 示例见 [RESOURCE_PACKS.md](RESOURCE_PACKS.md#zip-下载多线路与路径重写)。
 
 验证：`GET /metrics` 里 `assetsCdn` 会显示当前地址；浏览器网络面板里素材请求应指向 CDN。
 
@@ -513,8 +509,8 @@ docker run -d --name stronghold -p 3000:3000 --restart unless-stopped \
 ```
 
 - 页面数据加载器、浏览器战斗模拟和独立素材加载器通过运行时 `/js/asset-cdn.js` 的 `DATA_CDN`，直接请求 `<SP_DATA_CDN>/data/chess.json` 等静态 JSON，无需先请求游戏源站。也支持同源前缀，例如 `/cdn`；移除变量并重启后恢复同源加载。Node 的 `/data/*.json` 始终读取本地数据，保持 GET/HEAD、ETag/304 和原有缓存策略，不再跳转到数据 CDN。
-- `data/` 中全部 JSON 都从 `DATA_CDN` 加载，包括 `assets.json`、`asset-hashes.json`、`local-assets.json`、`local-fx.json`、`resource-manifest.json`、`resource-packs.json`、游戏数据和 `data/i18n/` 文本。游戏文本语言包 `/packs/<id>/texts/*.json` 也使用 `DATA_CDN`；UI 语言 `/i18n/*.json` 仍使用 `ASSETS_CDN`。浏览器读取素材清单后，按 `/js/asset-cdn.js` 提供的 `ASSETS_CDN` 改写 `/assets/…` 和 `/fonts/…`。
-- **服务器本地 `data/` 必须保留**，游戏逻辑、插件验证和战斗计算仍从本地读取。数据 CDN 同步使用 `bash scripts/sync-to-r2.sh`：上传完整 data、assets、fonts、语言和可选 resource packs，并在临时目录生成预载 resource manifest，不覆盖本机清单。先将 `config/r2-sync.example.json` 复制为已忽略的 `config/r2-sync.json`，填写 R2 和 CDN 配置；默认预演，加 `--apply` 才上传并清缓存。JSON 配置默认按 CDN 路径前缀清缓存，兼容环境变量模式仍清整个 Zone；均需要 Zone Cache Purge 权限。详见 [R2_SYNC.md](R2_SYNC.md)。CDN 允许 JSON 跨域读取，并设置 `Cache-Control: no-cache` 配合验证器；也可使用带版本号的 CDN 根目录。
+- `data/` 中全部 JSON 都从 `DATA_CDN` 加载，包括 `assets.json`、`asset-hashes.json`、`local-assets.json`、`local-fx.json`、`resource-manifest.json`、游戏数据和 `data/i18n/` 文本。游戏文本语言包 `/packs/<id>/texts/*.json` 也使用 `DATA_CDN`；UI 语言 `/i18n/*.json` 仍使用 `ASSETS_CDN`。浏览器读取素材清单后，按 `/js/asset-cdn.js` 提供的 `ASSETS_CDN` 改写 `/assets/…` 和 `/fonts/…`。
+- **服务器本地 `data/` 必须保留**，游戏逻辑、插件验证和战斗计算仍从本地读取。数据 CDN 同步使用 `bash scripts/sync-to-r2.sh`：上传 data、assets、fonts 和语言，并在临时目录生成资源校验清单，不覆盖本机清单。同步不上传玩家导入 ZIP；旧资源包索引不会进入同步数据。先将 `config/r2-sync.example.json` 复制为已忽略的 `config/r2-sync.json`，填写 R2 和 CDN 配置；默认预演，加 `--apply` 才上传并清缓存。JSON 配置默认按 CDN 路径前缀清缓存，兼容环境变量模式仍清整个 Zone；均需要 Zone Cache Purge 权限。详见 [R2_SYNC.md](R2_SYNC.md)。CDN 允许 JSON 跨域读取，并设置 `Cache-Control: no-cache` 配合验证器；也可使用带版本号的 CDN 根目录。
 - 两个 CDN 变量可以独立配置。`GET /metrics` 的 `dataCdn` 显示当前数据 CDN 根目录；未配置时为 `null`。
 - `deploy/production/docker-compose.yml` 从部署环境读取 `SP_ASSETS_CDN` 与 `SP_DATA_CDN`；配置后重建并重启游戏容器即可切换客户端静态资源请求，API 和 WebSocket 仍使用原游戏源站。
 
@@ -533,30 +529,15 @@ R2 CDN 的 `/data/` 映射到上传的 data 目录；游戏域名的 `/data/*.js
 
 `/packs/index.json` 继续由游戏源站动态生成，不复制到 CDN；语言 JSON 保持 `Cache-Control: no-cache`、ETag 和允许跨域读取。发布时同步对应文件并清理 CDN 缓存。显式外部 URL 和自定义加载器 `base` 优先。首次升级此加载逻辑需要重新构建并重启服务。
 
-### 3.3 资源预载（可选，客户端开关）
+### 3.3 资源校验清单与主动导入
 
-**战斗优先**：本页面进入普通作战、联防、最终攻势或隐秘核心时，自动暂停批量预载及后台缓存核对，
-保持用户的预载开关、下载范围和已有缓存；进入结算/休整期或退出对局后自动按最新选择补缺。
-观战、单人暂停及自身战场已结束但同局仍作战时也保持暂停。战斗素材的按需加载及 SW 缓存读取照常；
-ZIP 导入/导出不被自动取消。战斗中资源窗口不额外扫描缓存、继续下载/检查按钮暂不可用，
-可点击“暂停下载”取消战后自动恢复，也可关闭预载或清理缓存；这些手动选择不会被战斗结束反转。
-仅控制当前页面后台批量预载，其他标签页的独立任务不受此战斗状态控制。
-首次更新需重新构建、重启服务并刷新页面；使用素材 CDN 时同时同步 `public/i18n/` 语言文件。
+资源管理器只读取 `GET /data/resource-manifest.json` 和本机 Cache Storage，显示地图、人物、皮肤、全语言语音、技能特效等资源的指纹、大小与缺项。站点不提供批量资源包下载；旧 `/data/resource-packs.json` 和 `/resource-packs/*.zip` 均返回 404。资源管理器的自动检查只读取清单和缓存，不会补下载。
 
-玩家在游戏里「首页右下角」或「设置 ▸ 预载资源」打开后，客户端会把对局素材存进浏览器缓存（Service Worker + Cache Storage，见 [ASSETS.md](ASSETS.md)「Preload」），之后进战斗不再等待下载：素材由 Service Worker 直接从本机缓存读取。默认关闭，服务端无需任何配置（清单 `GET /data/resource-manifest.json` 由服务端从 `data/assets.json` 自动生成）。部署上只需注意两件事：
+玩家可通过“导入 ZIP”主动导入完整资源包。导入逐文件校验路径、CRC、大小、SHA-1 和当前清单，只写入当前版本仍有效的资源；导入不会启用自动检查，也不会触发缺项下载。维护者可在完整资源库机器上运行 `node tools/fetch-assets.mjs --voice-all --add-only`、`node tools/install-skins.mjs add-all`、`node tools/asset-hashes.mjs`，再运行 `npm run resource:package`，生成单个 ZIP 到忽略目录 `artifacts/`。完整包限制为 2 GiB，任何缺失文件、合成/过期指纹、超过 24 MiB 的单文件都会导致生成失败。操作细节见 [ASSETS.md](ASSETS.md) 和 [RESOURCE_PACKS.md](RESOURCE_PACKS.md)。
 
-- **`/resource-sw.js` 必须由游戏服务器提供，且不要被边缘缓存。** Service Worker 脚本要能立即更新：本项目对 `public/` 下的 `.js` 已经是 `no-cache`，但如果把整个 `public/` 交给 CDN / Cloudflare，请把 `resource-sw.js` 排除（Cloudflare → Caching → Cache Rules：`http.request.uri.path eq "/resource-sw.js"` → **Bypass**）。Nginx 例：
+游戏正常请求的素材仍按需由源站或素材 CDN 提供，并由 Service Worker 写入浏览器缓存。音频通过 `/media/…` 解析到清单中的真实素材路径。游戏源站或 CDN 上的普通素材需按现有 CORS 策略允许客户端读取。
 
-```nginx
-location = /resource-sw.js {
-    add_header Cache-Control "no-cache" always;
-}
-```
-
-- 同一浏览器的多个标签页不会各下一遍：客户端用 Web Locks 串行化预载，只有一个标签页在下载（其余显示「另一标签页预载中」，回到该标签页时自动继续）。
-- **更新只下变化的文件。** 清单里每个文件都带 `hash`（素材字节的 SHA-1 前 12 位）：本地素材由 `extract.py` 写入，网页素材由 `node tools/asset-hashes.mjs` 生成到 `data/asset-hashes.json`（跟 `data/assets.json` 一起放到服务器/镜像里；**重建 CDN 素材后记得重跑一次**，否则这些条目退回旧的「整个清单换版才失效」规则）。客户端把文件存在一个缓存 `stronghold-resources-v1-all` 里，靠这个 `hash` 决定哪些要重下；旧布局（`stronghold-resources-v1-<指纹>`）的缓存会被**迁移**而不是丢弃：客户端现算旧条目的 SHA-1，仍然一致的就搬进新缓存，不一致的删掉再下——所以这次上线不会让已预载的玩家把 330 MB 重下一次。
-- **音频走 `/media/…`（0.1.2 起）。** 没有配置 CDN 时，客户端播放 BGM / 音效请求的是无扩展名地址 `/media/bgm/act1`（`shared/media.js`：避免 IDM / 迅雷 这类下载管理器嗅探 `.mp3` 请求），由服务端解析回 `public/assets/audio/…`。预载清单里记的**仍然是真实文件路径**（CDN 是纯静态托管，认不了 `/media/…`），Service Worker 会把这条路由映射到清单里的那条记录 —— 所以走不走 CDN，音频都命中预载缓存；`/media/…` 的响应头和直接请求 `/assets/audio/…` 一样（一天缓存、支持 Range）。
-- **素材需要允许跨域读取**（与 §3.2 同一条要求）：预载会用 CORS 模式 `fetch` 素材并把响应写进缓存，缺 `Access-Control-Allow-Origin` 时该文件会被记为失败（游戏本身照常按需加载）。想确认预载是否生效：浏览器 DevTools → Application → Cache Storage 里应出现 `stronghold-resources-v1-all`，文件数为「已保存/总数」。
+**`/resource-sw.js` 必须由游戏服务器提供，且不要被边缘缓存。** Service Worker 脚本要能立即更新：本项目对 `public/` 下的 `.js` 已经是 `no-cache`，但如果把整个 `public/` 交给 CDN / Cloudflare，请把 `resource-sw.js` 排除（Cloudflare → Caching → Cache Rules：`http.request.uri.path eq "/resource-sw.js"` → **Bypass**）。首次更新需重新构建客户端、重启服务并刷新页面。
 
 ### 3.4 上限调整（房间 / 对局 / 连接）
 
