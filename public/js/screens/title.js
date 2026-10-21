@@ -340,7 +340,7 @@ export function TitleScreen() {
       <dl class="title-about__links">
         <div>
           <dt>${t('联系邮箱')}</dt>
-          <dd><a href="mailto:linxia@fastmail.com">linxia@fastmail.com</a></dd>
+          <dd><a href="mailto:huoqingcheng0@gmail.com">huoqingcheng0@gmail.com</a></dd>
         </div>
         <div>
           <dt>${t('问题反馈')}</dt>
