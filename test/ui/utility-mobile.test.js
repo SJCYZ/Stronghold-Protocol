@@ -118,9 +118,9 @@ test('damage meter keeps its measured dock, four numeric columns and type bars; 
   assert.match(component, /useLayoutEffect\(\(\) =>/, 'position is measured before painting');
 });
 
-test('mandatory landscape stays global: utility, room, loadout and statistics cannot bypass the portrait gate', () => {
+test('after entering the homepage, utility, room, loadout and statistics cannot bypass the portrait gate', () => {
   sheet.walkRules((rule) => assert.doesNotMatch(rule.selector, /rotate-hint/, 'the compact layer must not override the orientation gate'));
-  assert.match(read('public/css/theme.css'), /\.sp-rotatable \.rotate-hint \{ display: grid; \}/);
+  assert.match(read('public/css/theme.css'), /\.sp-rotatable\.sp-home-screen \.rotate-hint \{ display: grid; \}/);
   assert.match(read('public/css/theme.css'), /@media \(orientation: portrait\) and \(max-width: 1024px\)/);
   for (const file of ['public/js/ui/components.js', 'public/js/ui/guide.js', 'public/js/ui/combatMetrics.js']) {
     assert.doesNotMatch(read(file), /useUtilitySurface|claimUtilitySurface|sp-utility-open/, file);

@@ -12,7 +12,8 @@
 //     button works with taps, two-tap buy works with taps, a long press on a shop card opens its detail (no purchase);
 //   * safe-area insets (a notch on the left) move the HUD, not the field;
 // plus graceful degradation: WebGL disabled → the DOM view with a notice, local-client art missing → CSS look-alikes,
-// portrait phones retain the mandatory rotate hint on all screens, including utility overlays.
+// portrait phones can use the title/login page; after entering the lobby, the mandatory rotate hint covers every screen,
+// including utility overlays.
 
 import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -375,12 +376,17 @@ describe('multi-device (Chrome device emulation)', { skip: !ENABLED && 'set SP_E
     }
   });
 
-  test('portrait phone: mandatory rotate hint covers every screen and utility state', async () => {
+  test('portrait phone: title/login stays usable; after entering the lobby, the rotate hint covers screens and utility states', async () => {
     const page = await browser.newPage();
     await page.emulate({ viewport: { width: 390, height: 844, deviceScaleFactor: 3, isMobile: true, hasTouch: true }, userAgent: IOS_UA });
     await page.goto(`${base}/`, { waitUntil: 'networkidle0' });
     await sleep(400);
-    assert.equal(await page.$eval('.rotate-hint', (el) => getComputedStyle(el).display), 'grid', 'title requires landscape too');
+    assert.equal(await page.$eval('.rotate-hint', (el) => getComputedStyle(el).display), 'none', 'title/login allows portrait');
+    await page.type('.title-login input', '方向测试');
+    await page.click('.title-login button');
+    await page.waitForSelector('.lobby-screen', { timeout: 20000 });
+    await page.waitForFunction(() => getComputedStyle(document.querySelector('.rotate-hint')).display === 'grid');
+    assert.equal(await page.$eval('.rotate-hint', (el) => getComputedStyle(el).display), 'grid', 'the hint appears after entering the homepage');
     for (const cls of ['sp-in-match', 'sp-loadout-open', 'sp-stats-open']) {
       await page.evaluate((name) => document.documentElement.classList.add(name), cls);
       assert.equal(await page.$eval('.rotate-hint', (el) => getComputedStyle(el).display), 'grid', `${cls} cannot bypass landscape`);

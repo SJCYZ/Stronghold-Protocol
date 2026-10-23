@@ -55,7 +55,7 @@ import { settingsStore, useSettings, updateSettings } from './ui/settings.js';
 import { ResourceHost } from './ui/resourcePanel.js';
 import { bindResourceCombat } from './resources/combat.js';
 import { GuideHost } from './ui/guide.js';
-import { installDeviceSupport } from './ui/device.js';
+import { installDeviceSupport, useDocClass } from './ui/device.js';
 import { LoadoutHost } from './screens/loadout.js';
 import { StatsHost } from './screens/stats.js';
 import { installRehearsal } from './battle/rehearsal.js';
@@ -373,6 +373,7 @@ function ResourceManagerHost() {
 
 function App() {
   const route = useStore(selectRoute);
+  useDocClass('sp-home-screen', route !== 'title');
   useLang(); // a language switch re-renders the whole tree in place
   const [error, resetError] = useErrorBoundary((err) => console.error('[ui] screen crashed', err));
   const Screen = SCREENS[route] || LobbyScreen;

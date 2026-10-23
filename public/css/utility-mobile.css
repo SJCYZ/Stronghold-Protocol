@@ -164,7 +164,7 @@
   :is(.title-screen, .utility-modal, .lo) .field__box { height: auto; min-height: 28px; }
   .utility-modal .set-range { height: calc(.5 * var(--ui-unit)); border-block: calc(.2 * var(--ui-unit)) solid transparent; border-inline: 0; background-clip: padding-box; }
 }
-/* Truly narrow windows retain all controls and content. Phones still use the global landscape gate. */
+/* Truly narrow windows retain all controls and content. After entering the homepage, phones use the landscape gate. */
 @media (max-aspect-ratio: 1/1) {
   .resource-manager__options, .utility-modal .resource-manager__tiers { grid-template-columns: minmax(0, 1fr); }
   .room-screen .seats--solo { grid-template-columns: minmax(0, 1fr); }

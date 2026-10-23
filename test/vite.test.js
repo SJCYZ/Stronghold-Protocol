@@ -46,7 +46,7 @@ test('management density overrides are bundled after touch rules without bypassi
   assert.match(css, /--ui-unit:\s*var\(--sp-ui-unit,\s*1rem\)/);
   assert.match(css, /--utility-text:\s*calc\(var\(--t\)\s*\*\s*var\(--sp-ui-scale,\s*1\)\)/);
   assert.doesNotMatch(css, /--utility-text:\s*max\(var\(--t\),\s*64px\)/);
-  assert.match(css, /\.sp-rotatable \.rotate-hint\s*\{\s*display:\s*grid/);
+  assert.match(css, /\.sp-rotatable\.sp-home-screen \.rotate-hint\s*\{\s*display:\s*grid/);
   assert.doesNotMatch(css, /\.sp-rotatable:(?:not|is)\(/);
   assert.match(css, /data-viewport-docked/);
   assert.match(css, /--combat-available-height/);
