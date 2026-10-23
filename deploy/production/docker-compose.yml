@@ -18,6 +18,7 @@ services:
       SP_WGS_CLIENT_SECRET: "${SP_WGS_CLIENT_SECRET:-}"
       SP_WGS_CALLBACK_URL: "${SP_WGS_CALLBACK_URL:-}"
       SP_WGS_TIMEOUT_MS: "${SP_WGS_TIMEOUT_MS:-5000}"
+      SP_ANNOUNCEMENTS_FILE: /app/config/announcements.json
     ports:
       - "127.0.0.1:3080:3000"
     volumes:
@@ -29,6 +30,7 @@ services:
       - ./runtime/skins.json:/app/data/skins.json:ro
       - ./runtime/asset-hashes.json:/app/data/asset-hashes.json:ro
       - ./runtime/resource-packs.json:/app/data/resource-packs.json:ro
+      - ./runtime/config:/app/config
       - ./runtime/plugins:/app/plugins
       - ../../public/resource-packs:/app/public/resource-packs:ro
     depends_on:

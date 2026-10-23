@@ -738,11 +738,11 @@ $notice = @{ announcements = @(@{
 $notice | ConvertTo-Json -Depth 5 | Set-Content -Encoding UTF8 config/announcements.json
 ```
 
-**Docker 支持实时修改。** 镜像包含默认的 `config` 目录；建议挂载整个目录，容器内 `node` 用户只需读取权限：
+**Docker 支持实时修改。** 镜像包含默认的 `config` 目录。工作台保存公告时会原子替换配置文件，因此应可写挂载整个目录，并确保容器内 `node` 用户有目录写入权限：
 
 ```bash
 docker run -d --name stronghold -p 3000:3000 --restart unless-stopped \
-  --mount type=bind,source="$(pwd)/config",target=/app/config,readonly \
+  --mount type=bind,source="$(pwd)/config",target=/app/config \
   -e SP_ANNOUNCEMENTS_FILE=/app/config/announcements.json \
   stronghold-protocol
 ```
@@ -753,10 +753,10 @@ docker run -d --name stronghold -p 3000:3000 --restart unless-stopped \
     environment:
       SP_ANNOUNCEMENTS_FILE: /app/config/announcements.json
     volumes:
-      - ./config:/app/config:ro
+      - ./config:/app/config
 ```
 
-之后修改宿主机 `config/announcements.json` 或其引用的本地正文文件即可。挂载目录可以识别编辑器通过新文件替换旧文件的保存方式；只挂载单个文件可能看不到这类替换。配置必须在挂载前存在。容器重启恢复长期 popup；定时公告读取原来的绝对时间，恢复未到期通知，过期通知不补播。公告由配置文件保存，独立于 Redis；多个实例若使用相同配置，需要保持服务器系统时钟同步。
+之后可通过工作台管理滚动公告，也可编辑宿主机 `config/announcements.json` 或其引用的本地正文文件。挂载目录可以识别编辑器通过新文件替换旧文件的保存方式；只挂载单个文件可能看不到这类替换。容器重启恢复长期 popup；定时公告读取原来的绝对时间，恢复未到期通知，过期通知不补播。公告由配置文件保存，独立于 Redis；多个实例若使用相同配置，需要保持服务器系统时钟同步。仓库生产 Compose 将配置持久化在 `deploy/production/runtime/config`，首次切换到该挂载前应把现有 `/app/config` 内容复制到此目录。
 
 ## 4. macOS / Linux 常驻
 
