@@ -25,8 +25,8 @@ async function post(routes, pathname, body, token = 'token') {
     writeHead(status, more = {}) { this.status = status; Object.assign(headers, Object.fromEntries(Object.entries(more).map(([k, v]) => [k.toLowerCase(), v]))); },
     end(data) { this.body = data ? String(data) : ''; },
   };
-  assert.equal(await routes(req, res, pathname), true);
-  return { status: res.status, headers, body: JSON.parse(res.body || '{}') };
+  const handled = await routes(req, res, pathname);
+  return { handled, status: res.status, headers, body: JSON.parse(res.body || '{}') };
 }
 
 const account = { token: '0123456789abcdef0123456789abcdef', authType: 'account', wgsSubject: 'subject', wgsSessionRef: 'ref', wgsAuthVersion: 1, authExpiresAt: Date.now() + 60_000 };
@@ -40,7 +40,7 @@ test('guest and expired SSO cannot sync', async () => {
   assert.equal(expired.writes(), 0);
 });
 
-test('current SSO account session can sync and update round progress', async () => {
+test('current SSO account session can sync archive history', async () => {
   const calls = [];
   const app = harness({ session: account, accountStats: {
     async mergeRecords(subject, records) { calls.push(['merge', subject, records]); return { publicId: 'SP-AB12', records }; },
@@ -48,13 +48,18 @@ test('current SSO account session can sync and update round progress', async () 
   } });
   const records = [{ id: 'record-1', players: [{ name: '本人', lineup: [{ id: 'char_1' }] }] }];
   const sync = await post(app.routes, '/api/player-stats', { v: 2, records }, account.token);
+  assert.equal(sync.handled, true);
   assert.equal(sync.status, 200);
   assert.deepEqual(sync.body, { publicId: 'SP-AB12', v: 2, records });
-  const round = { matchId: 'ABCD:1', round: 2, leaks: 3, name: '本人' };
-  assert.equal((await post(app.routes, '/api/player-stats/round', round, account.token)).status, 200);
   assert.equal(calls[0][1], 'subject');
-  assert.equal(calls[1][1], 'subject');
-  assert.equal(calls[1][2].matchId, 'ABCD:1');
+  assert.equal(calls.some(([type]) => type === 'round'), false);
+});
+
+test('round progress is not client-writeable through HTTP', async () => {
+  const app = harness({ session: account });
+  const response = await post(app.routes, '/api/player-stats/round', { matchId: 'ABCD:1', round: 2, leaks: 9, name: '本人' }, account.token);
+  assert.equal(response.handled, false);
+  assert.equal(app.writes(), 0);
 });
 
 test('Redis unavailable is not reported as saved', async () => {

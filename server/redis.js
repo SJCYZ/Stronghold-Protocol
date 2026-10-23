@@ -54,6 +54,8 @@ export class StateStore {
     this.url = url;
     this.key = `${prefix}${name}`;
     this.accountStatsKey = `${prefix}account-stats`;
+    this.accountStatsIdsKey = `${prefix}account-stats-ids`;
+    this.accountStatsSubjectsKey = `${prefix}account-stats-subject-ids`;
     this.ttlSec = ttlSec;
     this.connectTimeoutMs = Number.isFinite(connectTimeoutMs) ? Math.max(0, Number(connectTimeoutMs)) : CONNECT_TIMEOUT_MS;
     this.commandTimeoutMs = Number.isFinite(commandTimeoutMs) ? Math.max(0, Number(commandTimeoutMs)) : COMMAND_TIMEOUT_MS;
@@ -232,6 +234,24 @@ export class StateStore {
       this.#warn('account stats write failed', e);
       if (!this.client?.isReady) this.#drop();
       return false;
+    }
+  }
+
+  /** Atomically reserve one public ID code, or confirm that it already belongs to this account hash. */
+  async claimAccountPublicId(subjectHash, code) {
+    const client = await this.connect();
+    if (!client) return null;
+    try {
+      const script = "local known=redis.call('HGET',KEYS[2],ARGV[1]); if known then return known end; "
+        + "local owner=redis.call('HGET',KEYS[1],ARGV[2]); if owner and owner~=ARGV[1] then return false end; "
+        + "redis.call('HSET',KEYS[1],ARGV[2],ARGV[1]); redis.call('HSET',KEYS[2],ARGV[1],ARGV[2]); return ARGV[2]";
+      const result = await this.#command(client.eval(script, {
+        keys: [this.accountStatsIdsKey, this.accountStatsSubjectsKey], arguments: [subjectHash, code],
+      }), 'claim account public id');
+      return result == null || result === false ? false : String(result);
+    } catch (e) {
+      this.#warn('account public id claim failed', e);
+      return null;
     }
   }
 
