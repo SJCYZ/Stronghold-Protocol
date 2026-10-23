@@ -36,7 +36,7 @@ import { store, useStore, shallowEqual, loadPref, savePref } from '../store.js';
 import { data, getConfig, getMode, getStage, useData } from '../data.js';
 import { t, tc, N_ } from '../../../shared/i18n.js';
 import { NoticesButton } from '../ui/notices.js';
-import { syncCloudStats } from '../ui/cloudStats.js';
+import { getCachedPublicId, syncCloudStats } from '../ui/cloudStats.js';
 import { loadStats } from '../ui/stats.js';
 
 /** Official mode texts (activity_table act2autochess.modeDataDict), fallback when config.json is absent. */
@@ -383,7 +383,7 @@ export function ProtocolSelect({ card, roomMode, difficulty, onDifficulty, capac
 /** Lobby screen component. */
 export function LobbyScreen() {
   const me = useStore((s) => s.me, shallowEqual);
-  const [publicId, setPublicId] = useState(null);
+  const [publicId, setPublicId] = useState(() => getCachedPublicId(identity.getAuthType()));
   useEffect(() => {
     if (identity.getAuthType() !== 'account') { setPublicId(null); return undefined; }
     let current = true;

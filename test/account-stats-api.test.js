@@ -29,15 +29,57 @@ async function post(routes, pathname, body, token = 'token') {
   return { handled, status: res.status, headers, body: JSON.parse(res.body || '{}') };
 }
 
+async function get(routes, pathname, token = account.token) {
+  const req = new Readable({ read() { this.push(null); } });
+  req.method = 'GET'; req.url = pathname; req.headers = { authorization: token ? `Bearer ${token}` : '' };
+  const headers = {};
+  const res = {
+    setHeader(key, value) { headers[key.toLowerCase()] = value; },
+    writeHead(status, more = {}) { this.status = status; Object.assign(headers, Object.fromEntries(Object.entries(more).map(([k, v]) => [k.toLowerCase(), v]))); },
+    end(data) { this.body = data ? String(data) : ''; },
+  };
+  const handled = await routes(req, res, pathname);
+  return { handled, status: res.status, headers, body: JSON.parse(res.body || '{}') };
+}
+
 const account = { token: '0123456789abcdef0123456789abcdef', authType: 'account', wgsSubject: 'subject', wgsSessionRef: 'ref', wgsAuthVersion: 1, authExpiresAt: Date.now() + 60_000 };
 
 test('guest and expired SSO cannot sync', async () => {
   const guest = harness({ session: { ...account, authType: 'guest' } });
   assert.equal((await post(guest.routes, '/api/player-stats', { v: 2, records: [] })).status, 401);
+  assert.equal((await get(guest.routes, '/api/player-stats/id', account.token)).status, 401);
   assert.equal(guest.writes(), 0);
   const expired = harness({ session: account, introspect: false });
   assert.equal((await post(expired.routes, '/api/player-stats', { v: 2, records: [] })).status, 401);
   assert.equal(expired.writes(), 0);
+});
+
+test('current SSO session can read its stable public ID without writing archive history', async () => {
+  const calls = [];
+  const app = harness({ session: account, accountStats: {
+    async getPublicId(subject) { calls.push(['id', subject]); return 'SP-AB12'; },
+    async mergeRecords(subject, records) { calls.push(['merge', subject, records]); return { publicId: 'SP-AB12', records }; },
+    async updateRound() { calls.push(['round']); },
+  } });
+  const result = await get(app.routes, '/api/player-stats/id', account.token);
+  assert.equal(result.handled, true);
+  assert.equal(result.status, 200);
+  assert.deepEqual(result.body, { publicId: 'SP-AB12' });
+  assert.equal(result.headers['cache-control'], 'no-store');
+  assert.deepEqual(calls, [['id', 'subject']]);
+});
+
+test('multi-byte archive within the existing character budget passes the bounded body reader', async () => {
+  const records = [];
+  const app = harness({ session: account, accountStats: {
+    async mergeRecords(subject, incoming) { records.push(...incoming); return { publicId: 'SP-AB12', records: incoming }; },
+    async updateRound() {},
+  } });
+  const note = '漢'.repeat(799_900);
+  assert.ok(JSON.stringify({ v: 2, records: [{ id: 'multi-byte', note }] }).length <= 800_000);
+  const response = await post(app.routes, '/api/player-stats', { v: 2, records: [{ id: 'multi-byte', note }] }, account.token);
+  assert.equal(response.status, 200);
+  assert.equal(records[0].note.length, note.length);
 });
 
 test('current SSO account session can sync archive history', async () => {
