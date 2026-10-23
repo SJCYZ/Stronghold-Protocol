@@ -36,6 +36,8 @@ import { store, useStore, shallowEqual, loadPref, savePref } from '../store.js';
 import { data, getConfig, getMode, getStage, useData } from '../data.js';
 import { t, tc, N_ } from '../../../shared/i18n.js';
 import { NoticesButton } from '../ui/notices.js';
+import { syncCloudStats } from '../ui/cloudStats.js';
+import { loadStats } from '../ui/stats.js';
 
 /** Official mode texts (activity_table act2autochess.modeDataDict), fallback when config.json is absent. */
 export const MODE_TEXT = {
@@ -381,6 +383,14 @@ export function ProtocolSelect({ card, roomMode, difficulty, onDifficulty, capac
 /** Lobby screen component. */
 export function LobbyScreen() {
   const me = useStore((s) => s.me, shallowEqual);
+  const [publicId, setPublicId] = useState(null);
+  useEffect(() => {
+    if (identity.getAuthType() !== 'account') { setPublicId(null); return undefined; }
+    let current = true;
+    syncCloudStats({ authType: identity.getAuthType(), token: identity.getToken(), stats: loadStats() })
+      .then((result) => { if (current) setPublicId(result.publicId); });
+    return () => { current = false; };
+  }, []);
   const myCard = useMyCard();
   useData(...(myCard.avatar ? ['assets'] : []));
   const conn = useStore((s) => s.connection, shallowEqual);
@@ -515,7 +525,7 @@ export function LobbyScreen() {
         <button type="button" class="me-chip me-chip--btn stats-entry" onClick=${openStats} title=${t('统计数据')} aria-label=${t('统计数据')}>
           <${AvatarFrame} src=${cardAvatarUrl(myCard.avatar, data.get('assets'))} size="sm" name=${me.name} seat=${0} self=${true} />
           <span class="me-chip__text"><span class="me-chip__name">${me.name || t('博士')}</span>
-            <${MicroLabel}>${me.playerId != null ? `DOCTOR #${doctorNo(me.playerId)}` : 'DOCTOR'}<//></span>
+            <${MicroLabel}>${publicId || (me.playerId != null ? `DOCTOR #${doctorNo(me.playerId)}` : 'DOCTOR')}<//></span>
           <${Icon} name="chart" class="me-chip__stats" />
         </button>
       </div>

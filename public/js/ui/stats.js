@@ -1,7 +1,7 @@
 // Local match statistics: every match the local player took part in is appended as one record to localStorage
-// (`sp.pref.stats`). Per-browser only — the server keeps matches in memory and has no identity, so there is nowhere
-// else for cross-match numbers to live; nothing here is ever sent anywhere. The stats page labels itself 本机数据 and
-// offers JSON export / import for moving between devices. (Ported from PR #323 by @2321Robin, reworked for 0.2.2.)
+// (`sp.pref.stats`). Local storage remains authoritative for the history UI and JSON export/import. SSO accounts also
+// synchronize the complete archive through ui/cloudStats.js; guests remain local-only. (Ported from PR #323 by
+// @2321Robin, reworked for 0.2.2.)
 //
 // Two kinds of record (`end`):
 //   'settled'  the match reached its settlement: m.result arrived (server/match/results.js buildResult). The record
@@ -682,7 +682,7 @@ export function recordQuit(state, ctx = {}) {
 }
 
 /**
- * Merge two envelopes (import into existing): union by record id, newest first, capped.
+ * Merge two envelopes (import or account sync): union by record id, newest first, capped; the first argument wins ties.
  * @param {{ records: any[] }} a current (wins ties)
  * @param {{ records: any[] }} b incoming
  * @returns {{ v: number, records: any[] }}
