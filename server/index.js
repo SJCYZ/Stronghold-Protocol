@@ -174,7 +174,7 @@ export async function startServer(opts = {}) {
   const matchWorkerPool = ownsMatchWorkerPool && matchWorkers > 0
     ? new MatchWorkerPool({ data, lanes: matchWorkers, log, timeoutMs: workerConfig.timeoutMs })
     : opts.matchWorkerPool || null;
-  const { registry, lobby, network } = createSessionStack({ ...opts, auth: sso, nameModeration }, { data, log, workerPool, matchWorkerPool, content, plugins: roomSets, hosts });
+  const { registry, lobby, network } = createSessionStack({ ...opts, auth: sso, nameModeration }, { data, log, workerPool, matchWorkerPool, content, plugins: roomSets, hosts, accountStats });
   lobby.auth = sso;
   // Resume the last state before listening: every reconnecting client is recognized by its token right away.
   const persister = store ? new Persister({ store, registry, lobby, log, now: opts.now, saveMs }) : null;

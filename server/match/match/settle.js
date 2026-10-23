@@ -90,6 +90,10 @@ export class MatchSettle {
         this.tickerText(msg('{name}博士的目标生命值已耗尽', { name: ps.name }), FLOW_TICKER_PRIORITY);
       }
     }
+    try {
+      this.onRoundEndFn?.({ matchId: this.matchId, round: this.round,
+        players: this.order.filter((ps) => !ps.isBot).map((ps) => ({ playerId: ps.playerId, leaks: ps.stats.leaks })) });
+    } catch (error) { this.reportError('onRoundEnd', error); }
     const rescueTargets = this.order.filter((ps) => ps.pendingElimination);
     const errors = runPostSettlement({
       players: this.order,

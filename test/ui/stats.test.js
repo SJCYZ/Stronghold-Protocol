@@ -25,6 +25,7 @@ import { PHASE } from '../../shared/constants.js';
 function baseResult(over = {}) {
   return {
     t: 'm.result',
+    matchId: 'ABCD:2',
     victory: true, roundsPassed: 15, hiddenReached: true, hiddenCleared: true, reason: 'hidden_cleared',
     teamLp: 24, modeId: 'mode_single_hard', difficulty: 'HARD', stageId: 'stage_hard', bossId: 'enemy_boss', hiddenBossId: 'enemy_hidden',
     seed: 123456789, durationMs: 952123,
@@ -804,7 +805,9 @@ describe('local stats: aggregation (what the page renders)', () => {
 describe('local stats: recordToResult (history row → settlement re-view)', () => {
   test('record → m.result payload → normalizeResult renders the same settlement the live push did', () => {
     const rec = buildRecord(baseResult(), { myId: 'p1', roomMode: 'solo', now: 1000 });
+    assert.equal(rec.matchId, 'ABCD:2');
     const res = recordToResult(rec);
+    assert.equal(res.matchId, 'ABCD:2');
     assert.ok(res);
     const view = normalizeResult(res, null);
     assert.equal(view.victory, true);

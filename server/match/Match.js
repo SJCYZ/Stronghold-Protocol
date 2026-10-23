@@ -63,6 +63,7 @@
 //                                              sent. The platform then (synchronously) returns the room to
 //                                              LOBBY and (asynchronously, next macrotask) calls dispose().
 //                                              `summary` is free-form JSON (kept as room.lastSummary).
+//   opts.onRoundEnd(event) → void               server-only cumulative leak snapshot after each authoritative settle.
 //
 // start()                   Called once, right after construction. Must broadcast the first m.public and send
 //                           each human its m.private. May call onEnd synchronously (the platform copes).
@@ -291,6 +292,8 @@ export class Match {
     }
     this.opts = opts;
     this.roomCode = opts.roomCode ?? '----';
+    this.matchNo = Number.isInteger(opts.matchNo) && opts.matchNo > 0 ? opts.matchNo : 1;
+    this.matchId = `${this.roomCode}:${this.matchNo}`;
     this.mode = opts.mode === 'solo' ? 'solo' : 'coop';
     this.difficulty = opts.difficulty;
     this.modeId = opts.modeId || modeIdFor(this.mode, opts.difficulty);
@@ -299,6 +302,7 @@ export class Match {
     this.sendFn = opts.send;
     this.broadcastFn = opts.broadcast;
     this.onEndFn = opts.onEnd;
+    this.onRoundEndFn = typeof opts.onRoundEnd === 'function' ? opts.onRoundEnd : null;
     this.data = opts.data && typeof opts.data === 'object' ? opts.data : {};
     /** the room's content hash (opts.cs, DESIGN §32): every BattleSpec carries it */
     this.cs = isContentHash(opts.cs) ? opts.cs : null;

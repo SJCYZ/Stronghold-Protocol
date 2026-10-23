@@ -136,6 +136,7 @@ export function buildResult(m, outcome) {
   });
   const out = {
     t: 'm.result',
+    matchId: m.matchId,
     victory,
     roundsPassed: teamRounds,
     hiddenReached,

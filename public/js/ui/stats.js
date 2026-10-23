@@ -237,6 +237,7 @@ export function normalizeRecord(raw) {
   if (!players.length) return null;
   const rec = {
     id: str(r.id),
+    matchId: str(r.matchId),
     v: STATS_VERSION,
     t: int(r.t, 0),
     end: quit ? 'quit' : 'settled',
@@ -351,7 +352,7 @@ export function loadStats() {
 
 // ---- compaction + the storage budget ---------------------------------------------------------------------------
 
-const COMPACT_FRAME = ['id', 'v', 't', 'end', 'victory', 'roundsPassed', 'lastRound', 'hiddenReached', 'hiddenCleared', 'reason', 'modeId',
+const COMPACT_FRAME = ['id', 'matchId', 'v', 't', 'end', 'victory', 'roundsPassed', 'lastRound', 'hiddenReached', 'hiddenCleared', 'reason', 'modeId',
   'difficulty', 'roomMode', 'durationMs', 'selfId', 'vs', 'content', 'test', 'testActions'];
 
 /**
@@ -469,6 +470,7 @@ export function buildRecord(res, ctx = {}) {
     v: STATS_VERSION,
     t: int(ctx.now, 0),
     id: recordId(r, myId),
+    matchId: str(r.matchId),
     end: 'settled',
     victory: bool(r.victory),
     roundsPassed: int(r.roundsPassed, 0),
@@ -613,6 +615,7 @@ export function recordToResult(rec) {
   const r = normalizeRecord(rec);
   if (!r || r.end === 'quit' || r.compact) return null;
   const res = {
+    matchId: r.matchId,
     victory: r.victory,
     roundsPassed: r.roundsPassed,
     hiddenReached: r.hiddenReached,

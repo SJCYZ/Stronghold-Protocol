@@ -393,7 +393,7 @@ export class Lobby {
    *   plugins", "Gameplay plugins"); hosts: the match hosts a room with gameplay plugins runs its match in
    *   (server/match/host/index.js; none: such a match runs here, unit tests)
    */
-  constructor({ registry, log = noopLog, MatchClass = DefaultMatch, getData = defaultGetData, now = Date.now, seedFn, content = null, plugins = null, hosts = null, options = {}, workerPool = null, matchWorkerPool = null, nameModeration = null }) {
+  constructor({ registry, log = noopLog, MatchClass = DefaultMatch, getData = defaultGetData, now = Date.now, seedFn, content = null, plugins = null, hosts = null, options = {}, workerPool = null, matchWorkerPool = null, nameModeration = null, accountStats = null }) {
     this.registry = registry;
     /** the vanilla content set every room plays (header "Content identity"), or null */
     this.vanilla = content && isContentHash(content.cs) ? Object.freeze({ cs: content.cs, vanilla: true, plugins: Object.freeze([]) }) : null;
@@ -406,6 +406,7 @@ export class Lobby {
     this.getData = getData;
     this.workerPool = workerPool;
     this.matchWorkerPool = matchWorkerPool;
+    this.accountStats = accountStats;
     this.nameModeration = nameModeration;
     this.chatReviews = new WeakMap();
     this.shuttingDown = false;
@@ -1143,13 +1144,16 @@ export class Lobby {
     const roomCode = typeof checkpoint.roomCode === 'string' && checkpoint.roomCode ? checkpoint.roomCode : `M${randomBytes(3).toString('hex').toUpperCase()}`;
     const mode = checkpoint.mode === 'solo' ? 'solo' : 'coop';
     const difficulty = typeof checkpoint.difficulty === 'string' && checkpoint.difficulty ? checkpoint.difficulty : 'NORMAL';
+    const matchNo = room ? Math.max(1, room.matchCount) : 1;
+    ctx.accountStatsContext = this.accountStatsContext(seats, `${roomCode}:${matchNo}`, mode, !room?.modded && room?.test !== true);
     try {
       const match = new this.MatchClass({
         roomCode, mode, difficulty, modeId: modeIdFor(mode, difficulty), seats,
-        consoleEnabled: false, aiPicksLast: !!checkpoint.aiPicksLast, seed: Number(checkpoint.seed) >>> 0, matchNo: room ? Math.max(1, room.matchCount) : 1,
+        consoleEnabled: false, aiPicksLast: !!checkpoint.aiPicksLast, seed: Number(checkpoint.seed) >>> 0, matchNo,
         data: this.safeData(), workerPool: this.workerPoolFor(room?.code || roomCode), log: this.log, now: this.now,
         send: (playerId, msg, encoded) => (ctx.live ? this.queueMatchSend(ctx, playerId, msg, encoded) : false),
         broadcast: (msg, encoded) => { if (ctx.live) this.queueMatchBroadcast(ctx, msg, encoded); },
+        onRoundEnd: (event) => this.onMatchRoundEnd(ctx, event),
         onEnd: (summary) => this.onQueuedMatchEnd(ctx, summary),
       });
       ctx.match = match;
@@ -1195,14 +1199,17 @@ export class Lobby {
     const difficulty = typeof checkpoint.difficulty === 'string' && checkpoint.difficulty ? checkpoint.difficulty : 'NORMAL';
     const ctx = { live: false, ended: false, disposed: false, queue: true, match: null, workerKey: roomCode, room,
       members: seats, lastPublic: null, sharedResult: null, results: new Map() };
+    const matchNo = room ? Math.max(1, room.matchCount) : 1;
+    ctx.accountStatsContext = this.accountStatsContext(seats, `${roomCode}:${matchNo}`, mode, !room?.modded && room?.test !== true);
     try {
       const match = await this.matchWorkerPool.create(roomCode, {
         roomCode, mode, difficulty, modeId: modeIdFor(mode, difficulty), seats, consoleEnabled: false, aiPicksLast: !!checkpoint.aiPicksLast,
-        seed: Number(checkpoint.seed) >>> 0, matchNo: room ? Math.max(1, room.matchCount) : 1,
+        seed: Number(checkpoint.seed) >>> 0, matchNo,
       }, {
         created: (match) => this.attachQueuedWorker(ctx, room, match),
         send: (playerId, msg, encoded) => { if (ctx.live) return this.queueMatchSend(ctx, playerId, msg, encoded); return false; },
         broadcast: (msg, encoded) => { if (ctx.live) this.queueMatchBroadcast(ctx, msg, encoded); },
+        roundEnd: (event) => this.onMatchRoundEnd(ctx, event),
         end: (summary) => this.onQueuedMatchEnd(ctx, summary),
       }, checkpoint, departedPlayerIds);
       if (ctx.disposed || room?.disposed || (room && room.matchCtx !== ctx)) {
@@ -2206,6 +2213,46 @@ export class Lobby {
   // Match wiring
   // ---------------------------------------------------------------------------------------------------
 
+  accountStatsContext(players, matchId, roomMode, official) {
+    const subjects = new Map();
+    if (official && this.accountStats) for (const player of players) {
+      if (!player || player.isBot) continue;
+      const session = this.registry.byId(player.playerId);
+      if (session?.authType === 'account' && typeof session.wgsSubject === 'string' && session.wgsSubject) {
+        subjects.set(player.playerId, { subject: session.wgsSubject, name: session.name || player.name || '' });
+      }
+    }
+    return { matchId, roomMode, subjects, enabled: official === true && subjects.size > 0 };
+  }
+
+  onMatchRoundEnd(ctx, event) {
+    const stats = ctx?.accountStatsContext;
+    if (!stats?.enabled || event?.matchId !== stats.matchId || !Number.isInteger(event.round) || !Array.isArray(event.players)) return;
+    for (const row of event.players) {
+      const account = stats.subjects.get(row?.playerId);
+      if (!account || !Number.isSafeInteger(row.leaks) || row.leaks < 0) continue;
+      const name = this.registry.byId(row.playerId)?.name || account.name;
+      Promise.resolve(this.accountStats.updateRound(account.subject, {
+        matchId: stats.matchId, round: event.round, leaks: row.leaks, name,
+      })).catch((error) => this.log.warn(`[account-stats] round update failed (${error?.code || 'error'})`));
+    }
+  }
+
+  completeAccountMatch(ctx, summary) {
+    const stats = ctx?.accountStatsContext;
+    if (!stats?.enabled || summary?.test === true || summary?.matchId !== stats.matchId || !Array.isArray(summary.players)) return;
+    for (const row of summary.players) {
+      const account = stats.subjects.get(row?.playerId);
+      if (!account || !row?.stats) continue;
+      const cups = Number(row.trophies), leaks = Number(row.stats.leaks);
+      if (!Number.isSafeInteger(cups) || cups < 0 || !Number.isSafeInteger(leaks) || leaks < 0) continue;
+      const name = this.registry.byId(row.playerId)?.name || account.name;
+      Promise.resolve(this.accountStats.completeMatch(account.subject, {
+        matchId: stats.matchId, roomMode: stats.roomMode, cups, leaks, name,
+      })).catch((error) => this.log.warn(`[account-stats] match update failed (${error?.code || 'error'})`));
+    }
+  }
+
   /** @param {Room} room @param {string | null} [key] per-network limit key of the starter */
   startMatch(room, key = null) {
     return this.startMatchWith(room, key, null);
@@ -2243,6 +2290,7 @@ export class Lobby {
     try { seed = this.seedFn() >>> 0; } catch { seed = randomInt(2 ** 32); }
     if (checkpoint && Number.isInteger(checkpoint.seed)) seed = checkpoint.seed >>> 0;
     const matchNo = checkpoint ? Math.max(1, room.matchCount) : room.matchCount + 1;
+    ctx.accountStatsContext = this.accountStatsContext(seats, `${room.code}:${matchNo}`, room.mode, !room.modded && room.test !== true);
     try {
       const match = await this.matchWorkerPool.create(room.code, {
         roomCode: room.code, mode: room.mode, difficulty: room.difficulty, modeId: modeIdFor(room.mode, room.difficulty),
@@ -2259,6 +2307,7 @@ export class Lobby {
         },
         send: (playerId, msg, encoded) => { if (ctx.live) return this.matchSend(room, ctx, playerId, msg, encoded); return false; },
         broadcast: (msg, encoded) => { if (ctx.live) this.matchBroadcast(room, ctx, msg, encoded); },
+        roundEnd: (event) => this.onMatchRoundEnd(ctx, event),
         end: (summary) => this.onMatchEnd(room, ctx, summary),
       }, checkpoint, departedPlayerIds);
       if (ctx.disposed || room.disposed || room.matchCtx !== ctx) {
@@ -2308,6 +2357,7 @@ export class Lobby {
     const ctx = { live: !checkpoint, ended: false, disposed: false, match: null, workerKey: room.code,
       lastPublic: null, sharedResult: null, results: new Map() };
     const matchNo = checkpoint ? Math.max(1, room.matchCount) : room.matchCount + 1;
+    ctx.accountStatsContext = this.accountStatsContext(seats, `${room.code}:${matchNo}`, room.mode, !modded && room.test !== true);
     let seed = 0;
     try { seed = this.seedFn() >>> 0; } catch { seed = randomInt(2 ** 32); }
     if (checkpoint && Number.isInteger(checkpoint.seed)) seed = checkpoint.seed >>> 0;
@@ -2343,6 +2393,7 @@ export class Lobby {
         now: this.now,
         send: (playerId, msg, encoded) => (ctx.live ? this.matchSend(room, ctx, playerId, msg, encoded) : false),
         broadcast: (msg, encoded) => { if (ctx.live) this.matchBroadcast(room, ctx, msg, encoded); },
+        onRoundEnd: (event) => this.onMatchRoundEnd(ctx, event),
         onEnd: (summary) => this.onMatchEnd(room, ctx, summary),
       };
       // a room with gameplay plugins plays in its content set's match host; every other room here, as always
@@ -2435,14 +2486,16 @@ export class Lobby {
     }).sort((a, b) => a.seat - b.seat);
     const allHumanIds = seats.filter((p) => !p.isBot).map((p) => p.playerId);
     const matchCode = room?.code || `M${randomBytes(3).toString('hex').toUpperCase()}`;
+    const matchNo = room ? room.matchCount + 1 : 1;
     const ctx = { live: false, ended: false, disposed: false, queue: true, match: null, workerKey: matchCode, room,
       members: seats, lastPublic: null, sharedResult: null, results: new Map() };
+    ctx.accountStatsContext = this.accountStatsContext(seats, `${matchCode}:${matchNo}`, owner.mode, !room?.modded && room?.test !== true);
     let seed = 0;
     try { seed = this.seedFn() >>> 0; } catch { seed = randomInt(2 ** 32); }
     try {
       const match = await this.matchWorkerPool.create(matchCode, {
         roomCode: matchCode, mode: owner.mode, difficulty: owner.difficulty, modeId: modeIdFor(owner.mode, owner.difficulty),
-        seats, consoleEnabled: !!room?.consoleEnabled, aiPicksLast: !!room?.aiPicksLast, seed, matchNo: room ? room.matchCount + 1 : 1,
+        seats, consoleEnabled: !!room?.consoleEnabled, aiPicksLast: !!room?.aiPicksLast, seed, matchNo,
       }, {
         created: (match) => {
           this.attachQueuedWorker(ctx, room, match);
@@ -2454,6 +2507,7 @@ export class Lobby {
         },
         send: (playerId, msg, encoded) => { if (ctx.live) return this.queueMatchSend(ctx, playerId, msg, encoded); return false; },
         broadcast: (msg, encoded) => { if (ctx.live) this.queueMatchBroadcast(ctx, msg, encoded); },
+        roundEnd: (event) => this.onMatchRoundEnd(ctx, event),
         end: (summary) => this.onQueuedMatchEnd(ctx, summary),
       });
       if (ctx.disposed || ctx.ended || room?.disposed || (room && room.matchCtx !== ctx)
@@ -2500,6 +2554,8 @@ export class Lobby {
     try { seed = this.seedFn() >>> 0; } catch { seed = randomInt(2 ** 32); }
     const matchCode = room?.code || `M${randomBytes(3).toString('hex').toUpperCase()}`;
     ctx.workerKey = matchCode;
+    const matchNo = room ? room.matchCount + 1 : 1;
+    ctx.accountStatsContext = this.accountStatsContext(seats, `${matchCode}:${matchNo}`, owner.mode, !room?.modded && room?.test !== true);
     try {
       const match = new this.MatchClass({
         roomCode: matchCode,
@@ -2510,10 +2566,11 @@ export class Lobby {
         consoleEnabled: !!room?.consoleEnabled,
         aiPicksLast: !!room?.aiPicksLast,
         seed,
-        matchNo: room ? room.matchCount + 1 : 1,
+        matchNo,
         data: this.safeData(), workerPool: this.workerPoolFor(matchCode), log: this.log, now: this.now,
         send: (playerId, msg, encoded) => (ctx.live ? this.queueMatchSend(ctx, playerId, msg, encoded) : false),
         broadcast: (msg, encoded) => { if (ctx.live) this.queueMatchBroadcast(ctx, msg, encoded); },
+        onRoundEnd: (event) => this.onMatchRoundEnd(ctx, event),
         onEnd: (summary) => this.onQueuedMatchEnd(ctx, summary),
       });
       ctx.match = match;
@@ -2597,6 +2654,7 @@ export class Lobby {
       this.onMatchEnd(room, ctx, summary);
       return;
     }
+    this.completeAccountMatch(ctx, summary);
     ctx.ended = true;
     ctx.live = false;
     this.log.info(`[match] standalone matchmaking match ended (${ctx.members.length} seats)`);
@@ -2606,6 +2664,7 @@ export class Lobby {
   /** onEnd callback: return the room to LOBBY and dispose the match on the next macrotask. */
   onMatchEnd(room, ctx, summary) {
     if (ctx.ended || !ctx.live || room.matchCtx !== ctx || room.disposed) return;
+    this.completeAccountMatch(ctx, summary);
     ctx.ended = true;
     room.lastSummary = summary ?? null;
     room.match = null;

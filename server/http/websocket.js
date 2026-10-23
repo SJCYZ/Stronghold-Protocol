@@ -62,7 +62,7 @@ export function narrowDeflateOffer(header) {
  *   gameplay plugins plays in (DESIGN §32.6)
  * @returns {{ registry: SessionRegistry, lobby: Lobby, network: Network }}
  */
-export function createSessionStack(opts, { data, log, workerPool, matchWorkerPool = null, content = null, plugins = null, hosts = null }) {
+export function createSessionStack(opts, { data, log, workerPool, matchWorkerPool = null, content = null, plugins = null, hosts = null, accountStats = null }) {
   const netOptions = netOptionsFrom(opts);
   const lobbyOptions = lobbyOptionsFrom(opts);
   // Limit overrides (docs/DEPLOY.md §3.4): an explicit startServer option wins, then the environment, then the code
@@ -84,7 +84,7 @@ export function createSessionStack(opts, { data, log, workerPool, matchWorkerPoo
   const registry = new SessionRegistry({ reconnectWindowMs: netOptions.reconnectWindowMs ?? NET_DEFAULTS.reconnectWindowMs });
   const lobby = new Lobby({
     registry, log, MatchClass: opts.MatchClass, getData: () => data, seedFn: opts.seedFn, options: lobbyOptions,
-    workerPool, matchWorkerPool, content, plugins, hosts, nameModeration: opts.nameModeration,
+    workerPool, matchWorkerPool, content, plugins, hosts, nameModeration: opts.nameModeration, accountStats,
   });
   const network = new Network({ registry, handler: lobby, auth: opts.auth || null, log, options: netOptions, nameModeration: opts.nameModeration });
   return { registry, lobby, network };

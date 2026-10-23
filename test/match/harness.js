@@ -70,6 +70,7 @@ export function makeMatch(o = {}) {
     },
     broadcast: (msg) => { for (const fn of h.onBroadcast) fn(msg); checkFrame(msg); h.bc.push(msg); },
     onEnd: (s) => { h.ended = s; h.endedCount++; },
+    onRoundEnd: o.onRoundEnd,
     scheduler: sched,
     registry: o.registry,
     offers: o.offers,

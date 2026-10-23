@@ -224,6 +224,8 @@ export class MatchWorkerPool {
       }
     } else if (message.type === 'end') {
       if (match) { match.update(message.meta); match.hooks.end?.(message.summary); }
+    } else if (message.type === 'roundEnd') {
+      match?.hooks.roundEnd?.(message.event);
     } else if (message.type === 'configured') {
       lane.settle(message.requestId, null);
     } else if (message.type === 'meta' || message.type === 'ready') {

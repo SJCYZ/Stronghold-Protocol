@@ -88,6 +88,7 @@ function makeOptions(key, instanceId, input, isReady) {
   delete base.send;
   delete base.broadcast;
   delete base.onEnd;
+  delete base.onRoundEnd;
   delete base.workerPool;
   delete base.log;
   delete base.now;
@@ -109,6 +110,7 @@ function makeOptions(key, instanceId, input, isReady) {
   base.onEnd = (summary) => {
     if (isReady()) emitWithMetadata({ type: 'end', key, instanceId, summary }, matchFor(key, instanceId));
   };
+  base.onRoundEnd = (event) => { if (isReady()) emit({ type: 'roundEnd', key, instanceId, event }); };
   return base;
 }
 

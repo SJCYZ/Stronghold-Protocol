@@ -54,6 +54,7 @@ test('mergeRecords deduplicates ids and preserves full rows', async () => {
 test('updateRound ignores stale rounds', async () => {
   const service = createAccountStats({ store: memoryStore() });
   await service.updateRound('subject-a', { matchId: 'ABCD:1', round: 5, leaks: 7, name: '甲' });
+  await service.updateRound('subject-a', { matchId: 'ABCD:1', round: 5, leaks: 99, name: '伪值' });
   await service.updateRound('subject-a', { matchId: 'ABCD:1', round: 4, leaks: 9, name: '甲' });
   assert.deepEqual(await service.leaderboards(), { cups: [], leaks: [{ name: '甲', value: 7 }] });
 });
