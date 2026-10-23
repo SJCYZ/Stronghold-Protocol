@@ -2571,5 +2571,10 @@
   "干员时装": "Operator outfits",
   "添加时装名称、系列、图片及正背面模型。": "Add outfit names, collections, images and front/back models.",
   "选择图片后，与表单一起保存并校验。": "Choose an image, then save and validate it together with the form.",
-  "清理": "Clear"
+  "清理": "Clear",
+  "本服务器功能": "Server features",
+  "使用 SSO 登录后，完整对局记录会同步保存到服务器，可在其他设备恢复。临时登录的数据仅保存在本机，不会上传。": "After SSO sign-in, full match records are synced to the server and can be restored on other devices. Temporary-login data stays on this device and is not uploaded.",
+  "绑定 SSO 账号后会获得 SP-XXXX 格式的玩家识别码，主页会显示该识别码。": "SSO-linked accounts receive an SP-XXXX player ID, which is shown on the homepage.",
+  "主页提供「！？强强？！」总杯数榜和「！？区区？！」总漏怪数榜。首次导入的旧本机记录会保存在云端，但不计入榜单；榜单只统计服务器结算的数据。": "The homepage features leaderboards for total trophies (！？强强？！) and total leaked enemies (！？区区？！). Old local records imported during first-time linking are saved to the cloud but excluded from rankings; leaderboards count only server-settled results.",
+  "主页的房间列表显示房主和人数，可以选择加入对局或观战。": "The homepage room list shows the host and player count. You can join a match or watch as a spectator."
 }
