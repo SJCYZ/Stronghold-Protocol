@@ -208,7 +208,7 @@ export async function startServer(opts = {}) {
   const announcements = new Announcements({ file: announcementFile ? path.resolve(announcementFile) : null,
     broadcast: (msg) => network.broadcast(msg), log, pollMs: opts.announcementPollMs });
   await announcements.start();
-  const servePublicApi = createPublicApi({ lobby, announcements, trustProxy: network.opts.trustProxy, sendJson, sendError });
+  const servePublicApi = createPublicApi({ lobby, announcements, accountStats, trustProxy: network.opts.trustProxy, sendJson, sendError });
 
   const serveNameReview = createNameModerationRoute({ moderation: nameModeration, trustProxy: network.opts.trustProxy });
   const serveGameAuth = createGameAuthRoutes({ sso, lobby, trustProxy: network.opts.trustProxy });

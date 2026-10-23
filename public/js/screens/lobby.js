@@ -31,6 +31,7 @@ import { SettingsButton } from '../ui/settings.js';
 import { PwaInstallButton } from '../ui/device.js';
 import { LoadoutButton } from './loadout.js';
 import { AchievementEntry, AchievementPanel } from '../ui/achievements.js';
+import { LobbyDiscovery } from '../ui/lobbyDiscovery.js';
 import { net, identity } from '../net.js';
 import { store, useStore, shallowEqual, loadPref, savePref } from '../store.js';
 import { data, getConfig, getMode, getStage, useData } from '../data.js';
@@ -553,6 +554,7 @@ export function LobbyScreen() {
         </button>
         <${LoadoutButton} from="lobby" size="lg" class="lobby-loadout hub-plate hub-plate--loadout" label=${t('干员调配')} />
         <${HubTile} icon="chart" label=${t('统计数据')} en="LOCAL RECORDS" onClick=${openStats} />
+        <${LobbyDiscovery} request=${(type, payload) => run(type === 'room.join' ? 'join' : 'spectate', () => joinKnown(type, payload.code))} />
       </aside>
       <section class="hub-entries" aria-label=${t('模拟方式')}>
         ${matchQueue ? html`<${MatchQueuePanel} queue=${matchQueue} onCancel=${cancelMatchmaking} />` : null}

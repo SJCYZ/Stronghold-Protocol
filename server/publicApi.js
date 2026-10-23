@@ -1,7 +1,7 @@
 // i18n-ignore-file: API summaries keep configured content and bilingual HTTP errors.
 // Read-only public HTTP APIs. Project only documented fields, never session ids or private match data.
 import { createHash } from 'node:crypto';
-import { DIFFICULTY_NAMES, DEFAULT_ROOM_CAPACITY, MAX_ROOM_CAPACITY } from '../shared/constants.js';
+import { DIFFICULTY_NAMES, DEFAULT_ROOM_CAPACITY, MAX_ROOM_CAPACITY, MAX_SPECTATORS } from '../shared/constants.js';
 import { clientAddress, limitKeyOf, TokenBucket } from './net.js';
 
 export function roomStatus(room, serverNow) {
@@ -39,8 +39,28 @@ export function roomStatus(room, serverNow) {
   };
 }
 
+function lobbyRoomSummary(room) {
+  if (!room || room.disposed || room.mode !== 'coop' || room.test === true) return null;
+  const capacity = Number.isInteger(room.capacity) && room.capacity >= DEFAULT_ROOM_CAPACITY && room.capacity <= MAX_ROOM_CAPACITY
+    ? room.capacity : DEFAULT_ROOM_CAPACITY;
+  const seats = Array.isArray(room.seats) ? room.seats.slice(0, capacity).filter(Boolean) : [];
+  const host = seats.find((seat) => seat.playerId === room.hostId)?.name || '';
+  const inMatch = !!room.match;
+  const pub = inMatch && room.matchCtx?.lastPublic ? JSON.parse(room.matchCtx.lastPublic) : null;
+  const spectators = Array.isArray(room.spectators) ? room.spectators.length : 0;
+  return {
+    code: room.code, host, occupied: seats.length, capacity, difficulty: room.difficulty,
+    difficultyName: DIFFICULTY_NAMES[room.difficulty] || room.difficulty,
+    inMatch, phase: inMatch ? pub?.phase || room.match.phase || 'LOBBY' : 'LOBBY',
+    round: inMatch && Number.isFinite(pub?.round) ? pub.round : 0,
+    joinable: !inMatch && seats.length < capacity,
+    watchable: spectators < MAX_SPECTATORS,
+    spectators, spectatorCapacity: MAX_SPECTATORS,
+  };
+}
+
 /** Returns true if this API router handled the request. Address resolution shares the WebSocket TRUST_PROXY rules. */
-export function createPublicApi({ lobby, announcements, trustProxy, sendJson, sendError, now = Date.now }) {
+export function createPublicApi({ lobby, announcements, accountStats, trustProxy, sendJson, sendError, now = Date.now }) {
   const buckets = new Map();
   let sweptAt = now();
   let announcementReadAt = now();
@@ -63,10 +83,24 @@ export function createPublicApi({ lobby, announcements, trustProxy, sendJson, se
       } else if (req.method !== 'GET' && req.method !== 'HEAD') {
         res.setHeader('Allow', 'GET, HEAD');
         sendJson(req, res, 405, { error: 'METHOD_NOT_ALLOWED' });
+      } else if (pathname.toLowerCase() === '/api/rooms') {
+        const rooms = [...(lobby.rooms?.values?.() || [])].map(lobbyRoomSummary).filter(Boolean);
+        sendJson(req, res, 200, { rooms });
       } else {
         const match = /^\/api\/rooms\/([ABCDEFGHJKLMNPQRSTUVWXYZ]{4})\/status$/i.exec(pathname);
         const status = match ? roomStatus(lobby.getRoom(match[1]), at) : null;
         sendJson(req, res, status ? 200 : 404, status || { error: 'ROOM_NOT_FOUND' });
+      }
+      return true;
+    }
+    if (pathname === '/api/leaderboards') {
+      if (req.method !== 'GET' && req.method !== 'HEAD') {
+        res.setHeader('Allow', 'GET, HEAD');
+        sendJson(req, res, 405, { error: 'METHOD_NOT_ALLOWED' });
+      } else {
+        const boards = await accountStats.leaderboards(10);
+        const project = (rows) => rows.slice(0, 10).map(({ name, value }) => ({ name, value }));
+        sendJson(req, res, 200, { cups: project(boards.cups), leaks: project(boards.leaks) });
       }
       return true;
     }

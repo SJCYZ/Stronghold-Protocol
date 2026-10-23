@@ -159,7 +159,7 @@ test('status uses published pause/LP state, preserves disconnected/departed seat
 
 test('query rate limit includes local requests, failed queries and methods; refills at 2/s with IPv6 /64 grouping', async () => {
   let at = 1000;
-  const make = (trustProxy) => createPublicApi({ lobby: { getRoom() { return null; } }, trustProxy, now: () => at,
+  const make = (trustProxy) => createPublicApi({ lobby: { rooms: new Map(), getRoom() { return null; } }, trustProxy, now: () => at,
     sendJson(req, res, status, body) { res.status = status; res.body = body; }, sendError() {} });
   const api = make('auto');
   const query = async (router, ip, forwarded, method = 'GET') => {
@@ -167,7 +167,7 @@ test('query rate limit includes local requests, failed queries and methods; refi
     await router({ method, socket: { remoteAddress: ip }, headers: forwarded ? { 'x-real-ip': forwarded } : {} }, res, '/api/rooms');
     return res;
   };
-  for (let i = 0; i < 10; i++) assert.equal((await query(api, '127.0.0.1', null, i % 2 ? 'POST' : 'GET')).status, i % 2 ? 405 : 404);
+  for (let i = 0; i < 10; i++) assert.equal((await query(api, '127.0.0.1', null, i % 2 ? 'POST' : 'GET')).status, i % 2 ? 405 : 200);
   const denied = await query(api, '127.0.0.1', null, 'POST');
   assert.equal(denied.status, 429, 'rate limiting precedes method validation');
   assert.deepEqual(denied.body, { error: 'RATE_LIMITED' });
@@ -175,11 +175,11 @@ test('query rate limit includes local requests, failed queries and methods; refi
   at += 499;
   assert.equal((await query(api, '127.0.0.1')).status, 429);
   at += 1;
-  assert.equal((await query(api, '127.0.0.1')).status, 404);
+  assert.equal((await query(api, '127.0.0.1')).status, 200);
   assert.equal((await query(api, '127.0.0.1')).status, 429);
-  for (let i = 0; i < 10; i++) assert.equal((await query(api, '127.0.0.1', '2001:db8:1:2::1')).status, 404);
+  for (let i = 0; i < 10; i++) assert.equal((await query(api, '127.0.0.1', '2001:db8:1:2::1')).status, 200);
   assert.equal((await query(api, '127.0.0.1', '2001:db8:1:2::abcd')).status, 429);
-  assert.equal((await query(api, '127.0.0.1', '2001:db8:1:3::1')).status, 404);
+  assert.equal((await query(api, '127.0.0.1', '2001:db8:1:3::1')).status, 200);
   const untrusted = make(false);
   for (let i = 0; i < 10; i++) await query(untrusted, '127.0.0.1', `203.0.113.${i + 1}`);
   assert.equal((await query(untrusted, '127.0.0.1', '203.0.113.99')).status, 429, 'TRUST_PROXY=0 ignores spoofed headers');
@@ -293,4 +293,50 @@ test('popup announcement API is independent of the existing scrolling announceme
   await srv.announcements.reload();
   assert.equal(await read('/api/popup-announcement'), null);
   assert.equal((await read('/api/announcement')).text, scroll.text);
+});
+
+test('public room list exposes only cooperative summaries', async () => {
+  const room = { code: 'ABCD', mode: 'coop', difficulty: 'HARD', capacity: 4, hostId: 'p1', test: false,
+    match: null, seats: [{ playerId: 'p1', name: '房主昵称' }, { playerId: 'p2', name: '队友昵称' }, null, null],
+    spectators: [{ playerId: 'secret', name: '观战者' }] };
+  const lobby = { rooms: new Map([['ABCD', room], ['SOLO', { ...room, code: 'SOLO', mode: 'solo' }],
+    ['TEST', { ...room, code: 'TEST', test: true }]]) };
+  const api = createPublicApi({ lobby, accountStats: { async leaderboards() { return { cups: [], leaks: [] }; } }, sendJson(_q, res, status, body) { Object.assign(res, { status, body }); }, sendError() {} });
+  const res = { setHeader() {} };
+  assert.equal(await api({ method: 'GET', socket: { remoteAddress: '127.0.0.1' }, headers: {} }, res, '/api/rooms'), true);
+  assert.equal(res.status, 200);
+  assert.deepEqual(res.body.rooms, [{ code: 'ABCD', host: '房主昵称', occupied: 2, capacity: 4, difficulty: 'HARD',
+    difficultyName: '绝境模拟', inMatch: false, phase: 'LOBBY', round: 0, joinable: true, watchable: true,
+    spectators: 1, spectatorCapacity: 2 }]);
+  assert.doesNotMatch(JSON.stringify(res.body), /playerId|matchCtx|lastPublic|untrustedPrivate/i);
+});
+
+test('leaderboard API exposes only nicknames and totals', async () => {
+  const api = createPublicApi({ lobby: { rooms: new Map() }, accountStats: { async leaderboards(limit) {
+    assert.equal(limit, 10);
+    return { cups: [{ name: '玩家甲', value: 12 }], leaks: [{ name: '玩家乙', value: 7 }] };
+  } }, sendJson(_q, res, status, body) { Object.assign(res, { status, body }); }, sendError() {} });
+  const res = { setHeader() {} };
+  assert.equal(await api({ method: 'GET', socket: { remoteAddress: '127.0.0.1' }, headers: {} }, res, '/api/leaderboards'), true);
+  assert.equal(res.status, 200);
+  assert.deepEqual(res.body, { cups: [{ name: '玩家甲', value: 12 }], leaks: [{ name: '玩家乙', value: 7 }] });
+  assert.doesNotMatch(JSON.stringify(res.body), /subject|hash|publicId|playerId/i);
+});
+
+
+
+test('room list marks running rooms watchable only while a spectator seat is available', async () => {
+  const room = { code: 'ABCD', mode: 'coop', difficulty: 'NORMAL', capacity: 4, hostId: 'host', test: false,
+    match: { phase: 'COMBAT' }, matchCtx: { lastPublic: JSON.stringify({ phase: 'COMBAT', round: 6 }) },
+    seats: [{ playerId: 'host', name: '房主' }, { playerId: 'peer', name: '队友' }], spectators: [{}, {}] };
+  const api = createPublicApi({ lobby: { rooms: new Map([['ABCD', room]]) }, accountStats: { async leaderboards() { return { cups: [], leaks: [] }; } },
+    sendJson(_q, res, status, body) { Object.assign(res, { status, body }); }, sendError() {} });
+  const res = { setHeader() {} };
+  await api({ method: 'GET', socket: { remoteAddress: '127.0.0.1' }, headers: {} }, res, '/api/rooms');
+  assert.equal(res.body.rooms[0].inMatch, true);
+  assert.equal(res.body.rooms[0].phase, 'COMBAT');
+  assert.equal(res.body.rooms[0].round, 6);
+  assert.equal(res.body.rooms[0].joinable, false);
+  assert.equal(res.body.rooms[0].watchable, false);
+  assert.equal(res.body.rooms[0].spectators, 2);
 });

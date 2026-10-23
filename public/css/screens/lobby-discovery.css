@@ -1,0 +1,18 @@
+.lobby-discovery { min-height: 0; max-height: calc(3.85 * var(--ui-unit, 1rem)); overflow: auto; padding: calc(.12 * var(--ui-unit, 1rem)); color: var(--text-hi); background: rgba(7, 13, 12, .88); border: 1px solid rgba(223, 230, 226, .2); font-size: calc(.14 * var(--utility-text, var(--t))); }
+.lobby-discovery__boards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: calc(.12 * var(--ui-unit, 1rem)); }
+.lobby-discovery h2 { margin: 0 0 calc(.06 * var(--ui-unit, 1rem)); color: var(--mint-400); font-size: calc(.17 * var(--utility-text, var(--t))); font-weight: 900; }
+.lobby-discovery ol, .lobby-discovery ul { margin: 0; padding: 0; list-style: none; }
+.lobby-discovery li { display: flex; align-items: center; justify-content: space-between; gap: calc(.08 * var(--ui-unit, 1rem)); min-width: 0; padding: calc(.035 * var(--ui-unit, 1rem)) 0; border-top: 1px solid rgba(223, 230, 226, .1); }
+.lobby-discovery__board li span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lobby-discovery__board li b { color: #f0b24f; font-variant-numeric: tabular-nums; }
+.lobby-discovery__empty { margin: 0; color: var(--text-dim); }
+.lobby-discovery__rooms { margin-top: calc(.12 * var(--ui-unit, 1rem)); }
+.lobby-discovery__room-main { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 0 calc(.08 * var(--ui-unit, 1rem)); min-width: 0; }
+.lobby-discovery__room-main > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lobby-discovery__room-main small { grid-column: 1 / -1; color: var(--text-dim); }
+.lobby-discovery__actions { display: flex; gap: calc(.05 * var(--ui-unit, 1rem)); flex: none; }
+.lobby-discovery__actions button { min-height: calc(.32 * var(--ui-unit, 1rem)); padding: 0 calc(.1 * var(--ui-unit, 1rem)); color: var(--text-hi); background: #24332f; border: 1px solid rgba(223, 230, 226, .25); cursor: pointer; }
+.lobby-discovery__actions button:hover { border-color: var(--mint-400); }
+@media (max-aspect-ratio: 1/1) {
+  .lobby-discovery { max-height: none; width: 100%; box-sizing: border-box; }
+}
