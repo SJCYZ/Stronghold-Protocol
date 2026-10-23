@@ -65,7 +65,8 @@ export function createPublicApi({ lobby, announcements, accountStats, trustProxy
   let sweptAt = now();
   let announcementReadAt = now();
   return async (req, res, pathname) => {
-    if (/^\/api\/rooms(?:\/|$)/i.test(pathname)) {
+    const isRoomQuery = /^\/api\/rooms(?:\/|$)/i.test(pathname);
+    if (isRoomQuery || pathname === '/api/leaderboards') {
       res.setHeader('X-Robots-Tag', 'noindex, nofollow, noarchive');
       const at = now();
       if (at - sweptAt >= 60000) {
@@ -83,6 +84,10 @@ export function createPublicApi({ lobby, announcements, accountStats, trustProxy
       } else if (req.method !== 'GET' && req.method !== 'HEAD') {
         res.setHeader('Allow', 'GET, HEAD');
         sendJson(req, res, 405, { error: 'METHOD_NOT_ALLOWED' });
+      } else if (!isRoomQuery) {
+        const boards = await accountStats.leaderboards(10);
+        const project = (rows) => rows.slice(0, 10).map(({ name, value }) => ({ name, value }));
+        sendJson(req, res, 200, { cups: project(boards.cups), leaks: project(boards.leaks) });
       } else if (pathname.toLowerCase() === '/api/rooms') {
         const rooms = [...(lobby.rooms?.values?.() || [])].map(lobbyRoomSummary).filter(Boolean);
         sendJson(req, res, 200, { rooms });
@@ -90,17 +95,6 @@ export function createPublicApi({ lobby, announcements, accountStats, trustProxy
         const match = /^\/api\/rooms\/([ABCDEFGHJKLMNPQRSTUVWXYZ]{4})\/status$/i.exec(pathname);
         const status = match ? roomStatus(lobby.getRoom(match[1]), at) : null;
         sendJson(req, res, status ? 200 : 404, status || { error: 'ROOM_NOT_FOUND' });
-      }
-      return true;
-    }
-    if (pathname === '/api/leaderboards') {
-      if (req.method !== 'GET' && req.method !== 'HEAD') {
-        res.setHeader('Allow', 'GET, HEAD');
-        sendJson(req, res, 405, { error: 'METHOD_NOT_ALLOWED' });
-      } else {
-        const boards = await accountStats.leaderboards(10);
-        const project = (rows) => rows.slice(0, 10).map(({ name, value }) => ({ name, value }));
-        sendJson(req, res, 200, { cups: project(boards.cups), leaks: project(boards.leaks) });
       }
       return true;
     }

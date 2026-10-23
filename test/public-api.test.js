@@ -340,3 +340,25 @@ test('room list marks running rooms watchable only while a spectator seat is ava
   assert.equal(res.body.rooms[0].watchable, false);
   assert.equal(res.body.rooms[0].spectators, 2);
 });
+
+test('leaderboard reads share the room query IP budget and return Retry-After when exhausted', async () => {
+  let at = 1000;
+  let reads = 0;
+  const api = createPublicApi({ lobby: { rooms: new Map() }, accountStats: { async leaderboards() { reads++; return { cups: [], leaks: [] }; } },
+    now: () => at, sendJson(_req, res, status, body) { Object.assign(res, { status, body }); }, sendError() {} });
+  const call = async (path, method = 'GET') => {
+    const res = { headers: {}, setHeader(k, v) { this.headers[k] = v; } };
+    await api({ method, socket: { remoteAddress: '127.0.0.1' }, headers: {} }, res, path);
+    return res;
+  };
+  for (let i = 0; i < 10; i++) {
+    const path = i % 2 ? '/api/rooms' : '/api/leaderboards';
+    assert.equal((await call(path)).status, 200);
+  }
+  assert.equal(reads, 5);
+  const denied = await call('/api/leaderboards', 'HEAD');
+  assert.equal(denied.status, 429);
+  assert.deepEqual(denied.body, { error: 'RATE_LIMITED' });
+  assert.equal(denied.headers['Retry-After'], '1');
+  assert.equal(reads, 5, 'a rejected leaderboard query does not scan account storage');
+});
