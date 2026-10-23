@@ -343,24 +343,12 @@ export function TitleScreen() {
           <dd><a href="mailto:huoqingcheng0@gmail.com">huoqingcheng0@gmail.com</a></dd>
         </div>
         <div>
-          <dt>${t('问题反馈')}</dt>
-          <dd><a href="https://space.bilibili.com/401522003" target="_blank" rel="noopener noreferrer">${t('B 站：临夏俨然')}</a></dd>
-          <p class="title-about__hint">${t('如果遇到服务器方面的问题，可以通过 B 站私信或发送邮件联系。')}</p>
-        </div>
-        <div>
-          <dt>${t('本服务器使用的 GitHub 仓库')}</dt>
-          <dd><a href="https://github.com/xinhai-ai/Stronghold-Protocol" target="_blank" rel="noopener noreferrer">https://github.com/xinhai-ai/Stronghold-Protocol</a></dd>
+          <dt>${t('本项目 GitHub 仓库')}</dt>
+          <dd><a href="https://github.com/SJCYZ/Stronghold-Protocol" target="_blank" rel="noopener noreferrer">https://github.com/SJCYZ/Stronghold-Protocol</a></dd>
         </div>
         <div>
           <dt>${t('UI 制作')}</dt>
           <dd><a href="https://space.bilibili.com/27675079" target="_blank" rel="noopener noreferrer">${/* i18n-ignore: creator name */ 'B站雨千代Chiyo'}</a></dd>
-        </div>
-        <div>
-          <dt>${t('本服务器功能')}</dt>
-          <dd>${t('使用 SSO 登录后，完整对局记录会同步保存到服务器，可在其他设备恢复。临时登录的数据仅保存在本机，不会上传。')}</dd>
-          <dd class="title-about__hint">${t('绑定 SSO 账号后会获得 SP-XXXX 格式的玩家识别码，主页会显示该识别码。')}</dd>
-          <dd class="title-about__hint">${t('主页提供「！？强强？！」总杯数榜和「！？区区？！」总漏怪数榜。首次导入的旧本机记录会保存在云端，但不计入榜单；榜单只统计服务器结算的数据。')}</dd>
-          <dd class="title-about__hint">${t('主页的房间列表显示房主和人数，可以选择加入对局或观战。')}</dd>
         </div>
       </dl>
       <div class="title-about__disclaimer">
