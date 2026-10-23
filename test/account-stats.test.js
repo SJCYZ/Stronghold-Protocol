@@ -51,6 +51,18 @@ test('mergeRecords deduplicates ids and preserves full rows', async () => {
   assert.equal(JSON.stringify(store.docs.get(internalKey)).includes('wgs-subject'), false);
 });
 
+test('first SSO archive import preserves unverified history without adding leaderboard scores', async () => {
+  const service = createAccountStats({ store: memoryStore() });
+  const forged = row('unverified-first-import', {
+    record: { t: 100, matchId: 'CLIENT:999' },
+    self: { name: '伪造昵称', trophies: 999999, stats: { leaks: 999999 } },
+  });
+  const merged = await service.mergeRecords('subject-unverified-history', [forged]);
+
+  assert.deepEqual(merged.records, [forged], 'full local archive remains available for cloud restore');
+  assert.deepEqual(await service.leaderboards(), { cups: [], leaks: [] });
+});
+
 test('updateRound ignores stale rounds', async () => {
   const service = createAccountStats({ store: memoryStore() });
   await service.updateRound('subject-a', { matchId: 'ABCD:1', round: 5, leaks: 7, name: '甲' });
@@ -67,7 +79,7 @@ test('client archive history cannot clear authoritative round progress', async (
   assert.deepEqual((await service.leaderboards()).leaks, [{ name: '甲', value: 4 }]);
 });
 
-test('leaderboards count only the account own settled official rows', async () => {
+test('client archive rows never contribute to public leaderboards', async () => {
   const service = createAccountStats({ store: memoryStore() });
   const settled = row('eligible', { self: { trophies: 5, stats: { leaks: 2 } }, peer: { trophies: 900, stats: { leaks: 900 } } });
   const solo = row('solo', { record: { roomMode: 'solo' }, self: { trophies: 900, stats: { leaks: 3 } } });
@@ -76,34 +88,32 @@ test('leaderboards count only the account own settled official rows', async () =
   const training = row('training', { record: { difficulty: 'TRAINING' }, self: { trophies: 100, stats: { leaks: 100 } } });
   const tested = row('tested', { record: { test: true }, self: { trophies: 100, stats: { leaks: 100 } } });
   await service.mergeRecords('subject-rank', [settled, solo, quit, modded, training, tested]);
-  assert.deepEqual(await service.leaderboards(), {
-    cups: [{ name: '本人', value: 5 }],
-    leaks: [{ name: '本人', value: 5 }],
-  });
+  assert.deepEqual(await service.leaderboards(), { cups: [], leaks: [] });
 });
 
-test('archive edits after first binding cannot change leaderboard scores', async () => {
+test('archive edits cannot change authoritative leaderboard scores', async () => {
   const service = createAccountStats({ store: memoryStore() });
   const original = row('archive-1', { self: { trophies: 5, stats: { leaks: 2 } } });
   await service.mergeRecords('subject-frozen', [original]);
+  await service.completeMatch('subject-frozen', { matchId: 'ABCD:1', roomMode: 'coop', cups: 3, leaks: 1, name: '服务端昵称' });
   await service.mergeRecords('subject-frozen', [
     row('archive-1', { record: { t: 2 }, self: { trophies: 500, stats: { leaks: 500 } } }),
     row('archive-forged', { record: { t: 3 }, self: { trophies: 700, stats: { leaks: 700 } } }),
   ]);
-  assert.deepEqual(await service.leaderboards(), { cups: [{ name: '本人', value: 5 }], leaks: [{ name: '本人', value: 2 }] });
+  assert.deepEqual(await service.leaderboards(), { cups: [{ name: '服务端昵称', value: 3 }], leaks: [{ name: '服务端昵称', value: 1 }] });
 });
 
-test('authoritative match completion replaces its round contribution exactly once', async () => {
+test('authoritative match completion replaces its round contribution without archive totals', async () => {
   const service = createAccountStats({ store: memoryStore() });
-  await service.mergeRecords('subject-authoritative', [row('legacy', { self: { trophies: 5, stats: { leaks: 2 } } })]);
+  await service.mergeRecords('subject-authoritative', [row('archive-copy', { self: { trophies: 5, stats: { leaks: 2 } } })]);
   await service.updateRound('subject-authoritative', { matchId: 'ABCD:2', round: 4, leaks: 4, name: '本人' });
   await service.completeMatch('subject-authoritative', { matchId: 'ABCD:2', roomMode: 'coop', cups: 8, leaks: 4, name: '本人' });
   await service.updateRound('subject-authoritative', { matchId: 'ABCD:2', round: 5, leaks: 8, name: '本人' });
   await service.completeMatch('subject-authoritative', { matchId: 'ABCD:2', roomMode: 'coop', cups: 8, leaks: 4, name: '本人' });
-  assert.deepEqual(await service.leaderboards(), { cups: [{ name: '本人', value: 13 }], leaks: [{ name: '本人', value: 6 }] });
+  assert.deepEqual(await service.leaderboards(), { cups: [{ name: '本人', value: 8 }], leaks: [{ name: '本人', value: 4 }] });
 });
 
-test('legacy backfill excludes a match later registered authoritatively', async () => {
+test('imported archive copy does not add to an authoritative match score', async () => {
   const service = createAccountStats({ store: memoryStore() });
   await service.completeMatch('subject-prebind', { matchId: 'ABCD:pre', roomMode: 'coop', cups: 8, leaks: 4, name: '本人' });
   await service.mergeRecords('subject-prebind', [row('old-copy', {
@@ -112,7 +122,7 @@ test('legacy backfill excludes a match later registered authoritatively', async 
   assert.deepEqual(await service.leaderboards(), { cups: [{ name: '本人', value: 8 }], leaks: [{ name: '本人', value: 4 }] });
 });
 
-test('history compaction keeps old rows and their leaderboard totals', async () => {
+test('history compaction keeps old rows without using them as leaderboard totals', async () => {
   const service = createAccountStats({ store: memoryStore() });
   const records = Array.from({ length: 31 }, (_, i) => row(`bulk-${i}`, {
     record: { t: i + 1, padding: 'x'.repeat(26_000) }, self: { trophies: 1, stats: { leaks: 1 } },
@@ -120,7 +130,7 @@ test('history compaction keeps old rows and their leaderboard totals', async () 
   const merged = await service.mergeRecords('subject-compaction', records);
   assert.equal(merged.records.length, 31);
   assert.equal(merged.records.find((record) => record.id === 'bulk-0').compact, true);
-  assert.deepEqual(await service.leaderboards(), { cups: [{ name: '本人', value: 31 }], leaks: [{ name: '本人', value: 31 }] });
+  assert.deepEqual(await service.leaderboards(), { cups: [], leaks: [] });
 });
 
 test('a public ID collision gets a different stable unique code', async () => {

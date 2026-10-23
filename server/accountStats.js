@@ -26,55 +26,6 @@ function mergeRecords(existing, incoming) {
   return fitToBudget([...byId.values()].sort(recordOrder));
 }
 
-function selfRow(record) {
-  const players = Array.isArray(record.players) ? record.players : [];
-  return players.find((player) => player?.playerId && player.playerId === record.selfId)
-    || players.find((player) => !player?.isBot) || players[0] || null;
-}
-
-function roomMode(record) {
-  if (record.roomMode === 'solo' || record.roomMode === 'coop') return record.roomMode;
-  if (typeof record.modeId !== 'string') return null;
-  if (record.modeId.includes('_single_')) return 'solo';
-  if (record.modeId.includes('_multi_')) return 'coop';
-  return null;
-}
-
-function officialRecord(record) {
-  return isObject(record) && record.end !== 'quit' && record.test !== true && !record.content
-    && record.difficulty !== 'TRAINING' && record.modeId !== 'mode_training_1';
-}
-
-function recordScore(record) {
-  if (!officialRecord(record)) return null;
-  const self = selfRow(record);
-  const mode = roomMode(record);
-  if (!self || !['solo', 'coop'].includes(mode)) return null;
-  return {
-    name: typeof self.name === 'string' ? self.name.slice(0, 24) : '',
-    cups: mode === 'coop' && Number.isFinite(self.trophies) ? Math.max(0, self.trophies) : 0,
-    leaks: Number.isFinite(self.stats?.leaks) ? Math.max(0, self.stats.leaks) : 0,
-  };
-}
-
-function legacyScore(records) {
-  const legacy = { cups: 0, leaks: 0, name: '', matchScores: {} };
-  let newest = -Infinity;
-  for (const record of records) {
-    const score = recordScore(record);
-    if (!score) continue;
-    legacy.cups += score.cups;
-    legacy.leaks += score.leaks;
-    if (Number.isFinite(record.t) && record.t >= newest) { legacy.name = score.name; newest = record.t; }
-    if (typeof record.matchId === 'string' && record.matchId) {
-      const match = legacy.matchScores[record.matchId] ||= { cups: 0, leaks: 0 };
-      match.cups += score.cups;
-      match.leaks += score.leaks;
-    }
-  }
-  return legacy;
-}
-
 function ranking(scores, limit) {
   return scores.filter((entry) => entry.name && entry.value > 0)
     .sort((a, b) => b.value - a.value || a.name.localeCompare(b.name))
@@ -85,7 +36,7 @@ function codeFor(key, offset) {
   return ((Number(BigInt(`0x${key}`) % BigInt(ID_SPACE)) + offset) % ID_SPACE).toString(36).toUpperCase().padStart(4, '0');
 }
 
-/** Persistent account history with one-time legacy score backfill and server-authoritative live scores. */
+/** Persistent account history; only server-authored round and match settlements contribute to leaderboards. */
 export function createAccountStats({ store, now = Date.now } = {}) {
   const serialized = new Map();
 
@@ -123,8 +74,6 @@ export function createAccountStats({ store, now = Date.now } = {}) {
         records: Array.isArray(old.records) ? old.records : [],
         rounds: isObject(old.rounds) ? old.rounds : {},
         matches: isObject(old.matches) ? old.matches : {},
-        legacyBound: old.legacyBound === true,
-        legacy: isObject(old.legacy) ? old.legacy : { cups: 0, leaks: 0, name: '', matchScores: {} },
       };
       const result = await fn(doc);
       if (await store.writeAccountStats(key, doc) !== true) throw storeError();
@@ -147,10 +96,6 @@ export function createAccountStats({ store, now = Date.now } = {}) {
   async function merge(subject, records) {
     return mutate(subject, (doc) => {
       doc.records = mergeRecords(doc.records, Array.isArray(records) ? records : []);
-      if (!doc.legacyBound) {
-        doc.legacy = legacyScore(doc.records);
-        doc.legacyBound = true;
-      }
       return { publicId: doc.publicId, records: doc.records };
     });
   }
@@ -185,14 +130,7 @@ export function createAccountStats({ store, now = Date.now } = {}) {
     const cups = [], leaks = [];
     for (const doc of loaded.value) {
       if (!isObject(doc)) continue;
-      const base = isObject(doc.legacy) ? doc.legacy : { cups: 0, leaks: 0, name: '', matchScores: {} };
-      let accountCups = Number(base.cups) || 0, accountLeaks = Number(base.leaks) || 0;
-      for (const [matchId, score] of Object.entries(isObject(base.matchScores) ? base.matchScores : {})) {
-        if (!doc.matches?.[matchId]) continue;
-        accountCups -= Number(score?.cups) || 0;
-        accountLeaks -= Number(score?.leaks) || 0;
-      }
-      let name = typeof base.name === 'string' ? base.name : '';
+      let accountCups = 0, accountLeaks = 0, name = '';
       for (const match of Object.values(isObject(doc.matches) ? doc.matches : {})) {
         if (!isObject(match)) continue;
         accountCups += Number(match.cups) || 0;
