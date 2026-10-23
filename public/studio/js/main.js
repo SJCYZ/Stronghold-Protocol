@@ -29,6 +29,7 @@ import { bondId } from './gameplayModel.js';
 import { TrialBench } from './trial.js';
 import { CreateDialog } from './create.js';
 import { CatalogPage } from './catalog.js';
+import { AnnouncementsPage } from './announcements.js';
 import { SelectTools, confirmRemoval, removePlugins, showRefused } from './remove.js';
 import { ForgeDialog } from './forge.js';
 import { TargetPicker } from './picker.js';
@@ -370,6 +371,7 @@ function App({ info }) {
       <aside class="st-side">
         <${Button} variant="primary" block=${true} onClick=${() => setCreateOpen(true)} data-testid="new-plugin">${t('新建插件')}<//>
         <${Button} block=${true} active=${pane === 'catalog'} onClick=${() => setPane('catalog')} data-testid="catalog-open">${t('从目录安装')}<//>
+        <${Button} block=${true} active=${pane === 'announcements'} onClick=${() => setPane('announcements')} data-testid="announcements-open">${t('网站公告')}<//>
         <${Button} block=${true} class="st-forge-open" onClick=${() => setForgeOpen(true)} data-testid="forge-import">${t('从 Forge 包导入')}<//>
         ${removable.length ? html`<${SelectTools} count=${checked.size} total=${removable.length} busy=${removing} onRemove=${removeChecked}
           onAll=${(on) => { setRemoval(null); setChecked(on ? new Set(removable.map((p) => p.id)) : new Set()); }}
@@ -396,7 +398,8 @@ function App({ info }) {
         <p class="st-side__foot">${t('插件放在服务器的 plugins/ 文件夹里；这个页面只有本机和局域网能打开。')}</p>
       </aside>
       <main class="st-main">
-        ${pane === 'catalog' ? html`<${CatalogPage} canChange=${keyState === 'ok'} />`
+        ${pane === 'announcements' ? html`<${AnnouncementsPage} />`
+        : pane === 'catalog' ? html`<${CatalogPage} canChange=${keyState === 'ok'} />`
         : selected ? html`<${PluginView} key=${selected} id=${selected} info=${info} onListChanged=${refresh} eventsAt=${events.at}
             onGone=${(gone) => setSelected((s) => (s === gone ? null : s))} />`
         : html`<div class="st-main__empty">

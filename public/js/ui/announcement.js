@@ -130,9 +130,26 @@ export function AnnouncementBanner() {
     setDismissed(loadPref('announcementDismissed', '') === key ? key : '');
   }, [key]);
   const live = announcementLive(notice, now) && dismissed !== key;
+  const banner = useRef(null);
   const viewport = useRef(null);
   const line = useRef(null);
   const [scroll, setScroll] = useState({ from: 0, to: 0, duration: 8 });
+  useEffect(() => {
+    if (!live || !banner.current) return undefined;
+    const root = document.documentElement;
+    const update = () => root.style.setProperty('--site-notice-height', `${banner.current?.offsetHeight || 0}px`);
+    root.classList.add('sp-site-notice');
+    update();
+    const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(update) : null;
+    if (banner.current) observer?.observe(banner.current);
+    window.addEventListener('resize', update);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener('resize', update);
+      root.classList.remove('sp-site-notice');
+      root.style.removeProperty('--site-notice-height');
+    };
+  }, [live, key]);
   useEffect(() => {
     if (!live) return undefined;
     const measure = () => {
@@ -148,7 +165,7 @@ export function AnnouncementBanner() {
   if (!live) return null;
   const label = notice.level === 'urgent' ? t('紧急通知') : notice.level === 'warning' ? t('提醒') : t('通知');
   const dismiss = () => { savePref('announcementDismissed', key); setDismissed(key); };
-  return html`<aside class=${`site-notice site-notice--${notice.level}`} role="status" aria-live="polite" aria-atomic="true">
+  return html`<aside ref=${banner} class=${`site-notice site-notice--${notice.level}`} role="status" aria-live="polite" aria-atomic="true">
     <span class="site-notice__label">${label}</span>
     <span class="site-notice__accessible">${notice.text}</span>
     <div ref=${viewport} class="site-notice__viewport" aria-hidden="true">

@@ -14,6 +14,8 @@ Deprecation is this prose, not a fourth stability. A stable name that has to go 
 
 Studio routes are stable and **local-only**: this machine and the LAN, and the studio key (`X-SP-Studio`). Local-only is this paragraph, not a column of the table.
 
+`GET /studio/api/announcements` returns `{ announcements, revision }`; `announcements` contains normalized scroll entries only, and `revision` is the SHA-256 of the exact current config bytes (or `missing-v1` when the configured file does not exist). `PUT /studio/api/announcements` accepts `{ announcements, revision }` and returns the same shape with the new revision. It replaces scroll entries while preserving popup entries and their `textFile` references. A stale revision returns `409`; invalid combined content returns `400`; disabled storage returns `503`. PUT requires the Studio key, and its JSON body is limited to 128 KiB.
+
 This project does not host plugins and does not run a market. A catalogue (`schemas/catalog.schema.json`, docs/PLUGINS.md §17) is a document someone else publishes. Installing still means this server downloads one https zip and checks its SHA-256. The rows of the table are produced from the closed sets in the code (`node tools/plugin.mjs surface --write`). A new member of one of those sets (a manifest field, a permission, a class, a patch operation, a compact-record field, an overlay leaf, a DSL word, a postMessage name, a slot, a studio route, an error code, a catalogue field, an SDK member) belongs in the table. Every export of `shared/plugins/sdk.js` belongs in the table too, anchored at that export (`uncoveredSdkExports`). A new function in another module that is not a new member of one of those sets is not a new row. `test/plugins/surface.test.js` reads the `api()` function and requires its method and path to equal `STUDIO_ROUTES` in both directions.
 
 The 0.3.1 effects surfaces (`record.operator.fx`, `overlay.fx.*`, `dsl.fx.plugin`) are presentation extensions
@@ -309,6 +311,8 @@ replacement. No route or frozen plugin grammar member is added; the stable surfa
 | `ui.slot.stats.tab` | stable | 0.3.0 | `shared/plugins/manifest.js#UI_SLOT_IDS` |
 | `ui.slot.room.panel` | stable | 0.3.0 | `shared/plugins/manifest.js#UI_SLOT_IDS` |
 | `studio.route.GET /studio/api/info` | stable | 0.3.0 | `server/studio/index.js#STUDIO_ROUTES` |
+| `studio.route.GET /studio/api/announcements` | stable | 0.3.0 | `server/studio/index.js#STUDIO_ROUTES` |
+| `studio.route.PUT /studio/api/announcements` | stable | 0.3.0 | `server/studio/index.js#STUDIO_ROUTES` |
 | `studio.route.GET /studio/api/trial-options` | stable | 0.3.0 | `server/studio/index.js#STUDIO_ROUTES` |
 | `studio.route.POST /studio/api/trial` | stable | 0.3.0 | `server/studio/index.js#STUDIO_ROUTES` |
 | `studio.route.POST /studio/api/console/options` | stable | 0.3.1 | `server/studio/index.js#STUDIO_ROUTES` |

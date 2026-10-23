@@ -220,7 +220,7 @@ export async function startServer(opts = {}) {
   const serveStatic = createStaticHandler({ publicDir, dataDir, sharedDir, simDir, packsDir, pluginsDir, packs, content, log, visual, contents, cdnBase: assetsCdn, dataCdnBase: dataCdn, clientBuild, views });
   // the plugin studio (DESIGN §32.9): its page and API for this machine and the local network; it watches plugins/ only
   // once it is used (hot reload), and rooms whose host is the author or alone follow a plugin's changes by themselves
-  const studio = opts.studio === false ? null : createStudio({ publicDir, pluginsDir, dataDir, registry: packs, lobby, sessions: registry, log, fetch: opts.fetch });
+  const studio = opts.studio === false ? null : createStudio({ publicDir, pluginsDir, dataDir, registry: packs, lobby, sessions: registry, announcements, log, fetch: opts.fetch });
   const trustedRuntime = await createTrustedRuntime({registry:packs,log});
   lobby.trustedRuntime = trustedRuntime;
   const startedAt = Date.now();

@@ -1,4 +1,5 @@
-import { open, realpath } from 'node:fs/promises';
+import { open, realpath, rename, stat, unlink } from 'node:fs/promises';
+import { createHash, randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { parseAnnouncements, activeAnnouncement, ANNOUNCEMENT_MAX_COUNT } from '../shared/announcements.js';
 
@@ -6,7 +7,7 @@ export const ANNOUNCEMENT_POLL_MS = 2000;
 export const ANNOUNCEMENT_MAX_BYTES = 128 * 1024;
 const quiet = { info() {}, warn() {}, error() {} };
 
-async function readBounded(file) {
+async function readBoundedBuffer(file) {
   let handle;
   try {
     handle = await open(file, 'r');
@@ -20,9 +21,17 @@ async function readBounded(file) {
       bytes += chunk.bytesRead;
     }
     if (bytes > ANNOUNCEMENT_MAX_BYTES) throw new Error('announcement file must be at most 128 KiB');
-    return buffer.toString('utf8', 0, bytes).replace(/^\uFEFF/, '');
+    return buffer.subarray(0, bytes);
   } finally { await handle?.close().catch(() => {}); }
 }
+
+async function readBounded(file) {
+  return (await readBoundedBuffer(file)).toString('utf8').replace(/^\uFEFF/, '');
+}
+
+const MISSING_REVISION = 'missing-v1';
+function revisionOf(bytes) { return createHash('sha256').update(bytes).digest('hex'); }
+function configError(code, status, message) { return Object.assign(new Error(message), { code, status }); }
 
 /** Optional local popup .md/.txt bodies. Never fetch remote content or read outside the config directory. */
 async function popupTextFiles(doc, file) {
@@ -76,6 +85,7 @@ export class Announcements {
     this.pollTimer = null;
     this.boundaryTimer = null;
     this.pending = null;
+    this.writePending = Promise.resolve();
   }
 
   async start() {
@@ -89,14 +99,104 @@ export class Announcements {
     this.refresh();
   }
 
-  reload() {
-    if (this.pending) return this.pending;
+  reload(forceBroadcast = false) {
+    if (this.pending) return forceBroadcast ? this.pending.then((ok) => ok ? this.reload(true) : false) : this.pending;
     if (this.stopped || !this.file) return Promise.resolve(false);
-    this.pending = this._read().finally(() => { this.pending = null; });
+    this.pending = this._read(forceBroadcast).finally(() => { this.pending = null; });
     return this.pending;
   }
 
-  async _read() {
+  /** Read the editable scroll schedule and bind it to the exact bytes currently on disk. */
+  async readEditable() {
+    if (!this.file) throw configError('ANNOUNCEMENTS_DISABLED', 503, 'announcement storage is disabled');
+    let bytes;
+    try { bytes = await readBoundedBuffer(this.file); }
+    catch (err) {
+      if (err.code === 'ENOENT') return { announcements: [], revision: MISSING_REVISION };
+      throw err;
+    }
+    try {
+      const input = bytes.toString('utf8').replace(/^\uFEFF/, '');
+      const doc = await popupTextFiles(JSON.parse(input), this.file);
+      const rows = parseAnnouncements(doc).filter((row) => (row.type || 'scroll') === 'scroll');
+      return { announcements: rows, revision: revisionOf(bytes) };
+    } catch (err) {
+      throw configError('ANNOUNCEMENTS_INVALID', 400, err.message);
+    }
+  }
+
+  /** Replace only scroll rows, preserving popup source rows and checking the caller's file revision. */
+  replaceScrollRows(announcements, expectedRevision) {
+    if (!this.file) return Promise.reject(configError('ANNOUNCEMENTS_DISABLED', 503, 'announcement storage is disabled'));
+    const operation = this.writePending.then(() => this._replaceScrollRows(announcements, expectedRevision));
+    this.writePending = operation.catch(() => {});
+    return operation;
+  }
+
+  async _replaceScrollRows(announcements, expectedRevision) {
+    if (!Array.isArray(announcements) || typeof expectedRevision !== 'string') {
+      throw configError('ANNOUNCEMENTS_INVALID', 400, 'announcements and revision are required');
+    }
+    let currentBytes = null;
+    try { currentBytes = await readBoundedBuffer(this.file); }
+    catch (err) { if (err.code !== 'ENOENT') throw err; }
+    const currentRevision = currentBytes ? revisionOf(currentBytes) : MISSING_REVISION;
+    if (currentRevision !== expectedRevision) throw configError('ANNOUNCEMENTS_STALE', 409, 'announcement config changed; reload before saving');
+
+    let current = { announcements: [] };
+    if (currentBytes) {
+      try { current = JSON.parse(currentBytes.toString('utf8').replace(/^\uFEFF/, '')); }
+      catch (err) { throw configError('ANNOUNCEMENTS_INVALID', 400, err.message); }
+    }
+    if (!current || typeof current !== 'object' || Array.isArray(current) || !Array.isArray(current.announcements)) {
+      throw configError('ANNOUNCEMENTS_INVALID', 400, 'announcement config must contain an announcements array');
+    }
+    const popupRows = current.announcements.filter((row) => row?.type === 'popup');
+    if (announcements.some((row) => !row || typeof row !== 'object' || Array.isArray(row)
+        || row.type === 'popup' || Object.hasOwn(row, 'textFile'))) {
+      throw configError('ANNOUNCEMENTS_INVALID', 400, 'only scroll announcements may be edited');
+    }
+    const next = { ...current, announcements: [...announcements, ...popupRows] };
+    try {
+      const expanded = await popupTextFiles(next, this.file);
+      if (Buffer.byteLength(JSON.stringify(expanded), 'utf8') > ANNOUNCEMENT_MAX_BYTES) throw new Error('expanded announcement content must be at most 128 KiB');
+      parseAnnouncements(expanded);
+    } catch (err) {
+      throw configError('ANNOUNCEMENTS_INVALID', 400, err.message);
+    }
+
+    const output = Buffer.from(`${JSON.stringify(next, null, 2)}\n`, 'utf8');
+    if (output.length > ANNOUNCEMENT_MAX_BYTES) throw configError('ANNOUNCEMENTS_INVALID', 400, 'announcement config must be at most 128 KiB');
+    const temp = path.join(path.dirname(this.file), `.${path.basename(this.file)}.${randomUUID()}.tmp`);
+    let mode = 0o600;
+    if (currentBytes) {
+      try { mode = (await stat(this.file)).mode & 0o777; } catch { /* use the private default for a newly created config */ }
+    }
+    let handle;
+    try {
+      handle = await open(temp, 'wx', mode);
+      await handle.writeFile(output);
+      await handle.sync();
+      await handle.close();
+      handle = null;
+      // Recheck after writing the temp file so edits made during validation are not overwritten.
+      let latest = null;
+      try { latest = await readBoundedBuffer(this.file); }
+      catch (err) { if (err.code !== 'ENOENT') throw err; }
+      if ((latest ? revisionOf(latest) : MISSING_REVISION) !== expectedRevision) {
+        throw configError('ANNOUNCEMENTS_STALE', 409, 'announcement config changed; reload before saving');
+      }
+      await rename(temp, this.file);
+    } finally {
+      await handle?.close().catch(() => {});
+      await unlink(temp).catch(() => {});
+    }
+    const result = await this.readEditable();
+    await this.reload(true);
+    return result;
+  }
+
+  async _read(forceBroadcast = false) {
     try {
       const input = await readBounded(this.file);
       const doc = await popupTextFiles(JSON.parse(input), this.file);
@@ -110,7 +210,7 @@ export class Announcements {
         this.loaded = true;
       }
       this.lastError = null;
-      this.refresh();
+      this.refresh(forceBroadcast);
       return true;
     } catch (err) {
       if (!this.stopped) {
@@ -124,7 +224,7 @@ export class Announcements {
     }
   }
 
-  refresh() {
+  refresh(forceBroadcast = false) {
     if (this.stopped) return;
     const now = this.now();
     const current = activeAnnouncement(this.rows, now);
@@ -132,7 +232,7 @@ export class Announcements {
     const key = JSON.stringify([current, popupCurrent]);
     this.current = current;
     this.popupCurrent = popupCurrent;
-    if (key !== this.key) {
+    if (key !== this.key || forceBroadcast) {
       this.key = key;
       try { this.broadcast(this.message()); } catch (err) { this.log.error('[announcements] broadcast failed', err); }
     }

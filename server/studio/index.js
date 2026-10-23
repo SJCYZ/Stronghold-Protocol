@@ -7,6 +7,8 @@ import { readFxManifest as readPluginManifest } from '../plugins/fxAssets.js';
 //
 //   GET  /studio/                       the page (public/studio/index.html and its modules under /studio/)
 //   GET  /studio/api/info               the version, the templates, the target kinds, the limits, the hot reload
+//   GET  /studio/api/announcements       scroll rows and the current config revision
+//   PUT  /studio/api/announcements       replace scroll rows only; popup entries are preserved
 //   GET  /studio/api/targets?q=&kinds=  what a plugin can change, by official name (server/studio/targets.js)
 //   GET  /studio/api/slots?template=&target=   the places a template fills for a target (server/studio/templates/)
 //   GET  /studio/api/suggest-id?name=&target=&template=   a free plugin id
@@ -139,6 +141,8 @@ export const REMOVED_DIR = '_removed';
  */
 export const STUDIO_ROUTES = Object.freeze([
   'GET /studio/api/info',
+  'GET /studio/api/announcements',
+  'PUT /studio/api/announcements',
   'GET /studio/api/trial-options',
   'POST /studio/api/trial',
   'POST /studio/api/console/options',
@@ -270,7 +274,7 @@ export function suggestId({ name = '', target = null, template = '' }, taken) {
  *   lobby: the rooms (its autoApplyPlugins is set to the studio's rule; their plugin sets tell which plugins are in use);
  *   sessions: the session registry (a token the page names → its player)
  */
-export function createStudio({ publicDir, pluginsDir, dataDir, registry, lobby = null, sessions = null, log = noopLog, mode = studioMode(), watch, trialSpawn, fetch: fetchImpl = globalThis.fetch }) {
+export function createStudio({ publicDir, pluginsDir, dataDir, registry, lobby = null, sessions = null, announcements = null, log = noopLog, mode = studioMode(), watch, trialSpawn, fetch: fetchImpl = globalThis.fetch }) {
   const pageDir = path.join(path.resolve(publicDir), 'studio');
   // the key every change carries (key.js; X-SP-Studio) — read or made when first needed (the boot banner, a studio
   // request: a server that only runs tests or never shows its banner writes no key file); none when the studio is off
@@ -833,6 +837,24 @@ export function createStudio({ publicDir, pluginsDir, dataDir, registry, lobby =
         app: APP_VERSION, api: PLUGIN_API, mode, watching: watcher.active, limits: { ...STUDIO_LIMITS, pluginBytes: PLUGIN_LIMITS.pluginBytes, trial: TRIAL_LIMITS, removeMax: REMOVE_MAX },
         templates: TEMPLATES.map((t) => ({ id: t.id, class: t.class, kinds: t.kinds })), kinds: Object.keys(TARGET_KINDS),
       });
+    }
+    if (route === 'announcements' && read) {
+      if (!announcements) return json(503, { error: 'ANNOUNCEMENTS_DISABLED', detail: 'announcement storage is disabled' });
+      try { return json(200, await announcements.readEditable()); }
+      catch (e) {
+        if (e?.status) return json(e.status, { error: e.code, detail: e.message });
+        throw e;
+      }
+    }
+    if (route === 'announcements' && method === 'PUT') {
+      if (!mayChange(req)) return false;
+      if (!announcements) return json(503, { error: 'ANNOUNCEMENTS_DISABLED', detail: 'announcement storage is disabled' });
+      const body = await readJson(req, 128 * 1024);
+      try { return json(200, await announcements.replaceScrollRows(body.announcements, body.revision)); }
+      catch (e) {
+        if (e?.status) return json(e.status, { error: e.code, detail: e.message });
+        throw e;
+      }
     }
     if ((route === 'console/options' || route === 'console/build') && method === 'POST') {
       if (!mayChange(req)) return false;
