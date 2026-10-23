@@ -348,3 +348,9 @@ docs/SIM.md (the test harness section) and the patterns in `test/content/op_sieg
 - Sensitive-lexicon 使用 dev Docker 的 POST `/contains` `{text}` 和布尔 `contains`，不使用 `/detect`；Jev 使用服务端 key 和官方 `/v1/systemone` 单个精简 Noul 违规概率，合并类别以尽可能降低输入至 100 tokens 以下；不截断正文或声明未经实测的计费 token 数。浏览器不接触 Jev key；名称审核只在服务端直连 WS hello 触发，并通过同一 WS 返回不可用。
 - 保持服务端最终校验、同源 HTTP 安全、名字格式、缓存/并发/限流、断线竞态和 fail-open 约定。仅审核明确拒绝以固定日志标记记录，不包含昵称、聊天正文、地址、令牌、响应或 key；不记录审核触发、通过、格式错误、故障降级或审核开关状态日志。昵称拒绝提示“该名称不可用”，聊天拒绝提示“该内容不可用”，标题页无审核说明或服务不可用提示。词库后端只放受控 Docker 网络。文档 `docs/NAME_MODERATION.md`，回归 `test/name-moderation.test.js`、`test/chat-moderation-lifecycle.test.js`。
 - 首次/恢复登录及在线改名收到明确 `NAME_REJECTED` 后都自动返回可编辑昵称标题页，清除 entered 标记并关闭旧对话框；保留原 token、房间及对局，不自动退出或重试被拒名称。在线改名被拒仍保留服务器已批准的昵称和会话，用户手动改名后可继续；`CHAT_REJECTED`、限流及普通对局错误不触发此回退。
+
+## 跨局统计与主页发现
+
+- 仅 SSO 账号同步完整战绩到云端；临时登录仅保存在本机。首次 SSO 导入必须接受并保存完整旧历史，即使未经验证也可存入云端历史档案，用于归档和跨设备恢复；沿用本机压缩与容量规则。旧记录内的分数不计入公开榜分。
+- 公开排行榜只累计服务端内部 `updateRound` / `completeMatch` 写入的官方对局权威数据；客户端历史同步不得写入或修改榜分。主页固定显示“！？强强？！”总杯数榜和“！？区区？！”总漏怪榜，每次 SSO 账号进入主页都显示稳定格式 `SP-XXXX`。
+- 公开房间接口只投影合作房间摘要，不暴露内部玩家 ID 或战斗状态详情。参与和观战继续复用既有 `room.join` / `room.spectate` 协议；房间与榜单公开查询共用按客户端 IP 限流。
