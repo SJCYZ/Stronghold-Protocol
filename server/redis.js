@@ -53,6 +53,7 @@ export class StateStore {
     connectTimeoutMs = CONNECT_TIMEOUT_MS, commandTimeoutMs = COMMAND_TIMEOUT_MS }) {
     this.url = url;
     this.key = `${prefix}${name}`;
+    this.accountStatsKey = `${prefix}account-stats`;
     this.ttlSec = ttlSec;
     this.connectTimeoutMs = Number.isFinite(connectTimeoutMs) ? Math.max(0, Number(connectTimeoutMs)) : CONNECT_TIMEOUT_MS;
     this.commandTimeoutMs = Number.isFinite(commandTimeoutMs) ? Math.max(0, Number(commandTimeoutMs)) : COMMAND_TIMEOUT_MS;
@@ -202,6 +203,52 @@ export class StateStore {
       this.#warn('write failed', e);
       if (!this.client?.isReady) this.#drop();
       return false;
+    }
+  }
+
+  /** Read one durable account statistics document. This key is deliberately not part of the expiring state snapshot. */
+  async readAccountStats(subjectHash) {
+    const client = await this.connect();
+    if (!client) return { available: false, value: null };
+    try {
+      const raw = await this.#command(client.hGet(this.accountStatsKey, subjectHash), 'read account stats');
+      return { available: true, value: raw == null ? null : JSON.parse(raw) };
+    } catch (e) {
+      this.#warn('account stats read failed', e);
+      return { available: false, value: null };
+    }
+  }
+
+  /** Write one account document without an expiry; return false unless Redis confirmed the write. */
+  async writeAccountStats(subjectHash, doc) {
+    let json;
+    try { json = JSON.stringify(doc); } catch (e) { this.#warn('account stats are not JSON-serializable', e); return false; }
+    const client = await this.connect();
+    if (!client) return false;
+    try {
+      await this.#command(client.hSet(this.accountStatsKey, subjectHash, json), 'write account stats');
+      return true;
+    } catch (e) {
+      this.#warn('account stats write failed', e);
+      if (!this.client?.isReady) this.#drop();
+      return false;
+    }
+  }
+
+  /** Read all account documents for public ranking aggregation. */
+  async readAllAccountStats() {
+    const client = await this.connect();
+    if (!client) return { available: false, value: [] };
+    try {
+      const values = await this.#command(client.hGetAll(this.accountStatsKey), 'read account stats');
+      const docs = [];
+      for (const raw of Object.values(values)) {
+        try { const doc = JSON.parse(raw); if (doc && typeof doc === 'object') docs.push(doc); } catch { /* ignore one malformed account document */ }
+      }
+      return { available: true, value: docs };
+    } catch (e) {
+      this.#warn('account stats read failed', e);
+      return { available: false, value: [] };
     }
   }
 

@@ -33,6 +33,8 @@ import http from 'node:http';
 import { nameModerationFromEnv } from './nameModeration.js';
 import { createNameModerationRoute } from './http/nameModeration.js';
 import { createGameAuthRoutes } from './http/gameAuth.js';
+import { createAccountStatsRoutes } from './http/accountStats.js';
+import { createAccountStats } from './accountStats.js';
 import { WgsSso } from './auth/wgsSso.js';
 import path from 'node:path';
 import { gameAuthConfigFromEnv, parseAssetCdn, parseEnvLimit, parseWsCompression } from './http/config.js';
@@ -119,6 +121,7 @@ export async function startServer(opts = {}) {
   }
   // Redis is optional: no SP_REDIS_URL / REDIS_URL and the server is exactly what it always was (in memory only)
   const store = opts.store !== undefined ? opts.store : openStoreFromEnv({ log });
+  const accountStats = opts.accountStats || createAccountStats({ store, now: opts.now });
   const saveMs = Number.isFinite(opts.saveMs) ? Number(opts.saveMs) : Number(process.env.SP_REDIS_SAVE_MS) || SAVE_MS;
 
   // The process-wide singleton serves the default data dir; a custom dir (tests) gets its own copy.
@@ -209,8 +212,10 @@ export async function startServer(opts = {}) {
 
   const serveNameReview = createNameModerationRoute({ moderation: nameModeration, trustProxy: network.opts.trustProxy });
   const serveGameAuth = createGameAuthRoutes({ sso, lobby, trustProxy: network.opts.trustProxy });
+  const serveAccountStats = createAccountStatsRoutes({ sessions: registry, sso, accountStats, now: opts.now });
   const serveApi = async (req, res, pathname) => await serveNameReview(req, res, pathname)
-    || await serveGameAuth(req, res, pathname) || await servePublicApi(req, res, pathname);
+    || await serveGameAuth(req, res, pathname) || await serveAccountStats(req, res, pathname)
+    || await servePublicApi(req, res, pathname);
 
   const serveStatic = createStaticHandler({ publicDir, dataDir, sharedDir, simDir, packsDir, pluginsDir, packs, content, log, visual, contents, cdnBase: assetsCdn, dataCdnBase: dataCdn, clientBuild, views });
   // the plugin studio (DESIGN §32.9): its page and API for this machine and the local network; it watches plugins/ only
@@ -326,7 +331,7 @@ export async function startServer(opts = {}) {
   }
 
   return { port: actualPort, host: boundHost, url, server, wss, lobby, network, registry, packs, store: store || null, persister,
-    workerPool, matchWorkerPool, announcements, content, visual, contents, hosts, studio, traffic, close };
+    workerPool, matchWorkerPool, announcements, content, visual, contents, hosts, studio, traffic, accountStats, close };
 }
 
 // `node server/index.js` / npm start: listen, print the banner, stop on SIGINT / SIGTERM (http/boot.js).
