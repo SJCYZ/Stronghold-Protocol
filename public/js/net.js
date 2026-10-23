@@ -815,6 +815,7 @@ const K_RECENT = 'sp.tokens';    // localStorage: this browser's recent tokens, 
 const K_MATCHES = 'sp.matches'; // local metadata for explicit recovery of another closed tab's seat
 const K_ENTERED = 'sp.entered';  // sessionStorage: this tab passed the title screen
 const K_AUTH_TYPE = 'sp.authType'; // sessionStorage display hint from this tab's one-time ticket; never an authorization source
+const K_PUBLIC_ID = 'sp.accountPublicId'; // sessionStorage: display code for this tab's active account session only
 const RECENT_MAX = 4;
 const TOKEN_MAX_LEN = 64;        // protocol limit for hello.token
 const CHANNEL_NAME = 'sp.identity';
@@ -887,6 +888,12 @@ export function createIdentity(deps = {}) {
   let owned = sget(session, K_TOKEN);
   if (!isToken(owned)) owned = null;
   let authType = ['account', 'guest'].includes(sget(session, K_AUTH_TYPE)) ? sget(session, K_AUTH_TYPE) : null;
+  const publicIdListeners = new Set();
+  const clearPublicId = () => {
+    const hadId = sget(session, K_PUBLIC_ID) != null;
+    sdel(session, K_PUBLIC_ID);
+    if (hadId) for (const listener of [...publicIdListeners]) { try { listener(); } catch { /* one view cannot block identity */ } }
+  };
   let welcomeAt = null;
   try {
     const saved = JSON.parse(sget(session, K_WELCOME) || 'null');
@@ -948,6 +955,7 @@ export function createIdentity(deps = {}) {
     // The original page can reappear after resume's query but before its hello. Keep our old
     // session in storage and give back the tentative selection immediately in that interval.
     if (current && tokenHash(current) === hash) {
+      clearPublicId();
       if (current === owned) {
         owned = null; welcomeAt = null; welcomed = false;
         sdel(session, K_WELCOME);
@@ -1010,6 +1018,7 @@ export function createIdentity(deps = {}) {
         initPromise = resolveToken().catch(() => null).then((pick) => {
           // A welcome may already have set a token while we were waiting: that one wins.
           if (!welcomed) {
+            if (pick !== owned) clearPublicId();
             current = pick;
             if (pick) sset(session, K_TOKEN, pick);
             else {
@@ -1043,6 +1052,7 @@ export function createIdentity(deps = {}) {
       try {
         const pick = await queryCandidates([token]);
         if (!pick) return false;
+        if (pick !== current) clearPublicId();
         current = pick;
         return true;
       } catch { return false; }
@@ -1072,7 +1082,7 @@ export function createIdentity(deps = {}) {
     /** @param {string} token from `welcome` */
     saveToken(token) {
       if (!isToken(token)) return;
-      if (current !== token) rememberMatch(null);
+      if (current !== token) { clearPublicId(); rememberMatch(null); }
       if (owned !== token || welcomeAt == null) welcomeAt = now();
       owned = token;
       welcomed = true;
@@ -1083,6 +1093,7 @@ export function createIdentity(deps = {}) {
     },
     /** Forget this tab's token (e.g. the server said the session is invalid). */
     clearToken() {
+      clearPublicId();
       rememberMatch(null);
       const t = current || sget(session, K_TOKEN);
       current = null;
@@ -1094,9 +1105,28 @@ export function createIdentity(deps = {}) {
     /** Display-only identity hint from the one-time ticket used in this tab. */
     getAuthType: () => authType,
     setAuthType(type) {
-      authType = ['account', 'guest'].includes(type) ? type : null;
+      const next = ['account', 'guest'].includes(type) ? type : null;
+      if (next !== authType) clearPublicId();
+      authType = next;
       if (authType) sset(session, K_AUTH_TYPE, authType);
       else sdel(session, K_AUTH_TYPE);
+    },
+    /** Account display code is scoped to this tab's active reconnect session. */
+    getPublicId() {
+      if (authType !== 'account') return null;
+      const value = sget(session, K_PUBLIC_ID);
+      return /^SP-[0-9A-Z]{4}$/.test(value || '') ? value : null;
+    },
+    setPublicId(value, token = current || (initialized ? null : sget(session, K_TOKEN))) {
+      if (authType !== 'account' || !/^SP-[0-9A-Z]{4}$/.test(value || '') || !isToken(token) || token !== this.getToken()) return null;
+      sset(session, K_PUBLIC_ID, value);
+      for (const listener of [...publicIdListeners]) { try { listener(); } catch { /* one view cannot block identity */ } }
+      return value;
+    },
+    subscribePublicId(listener) {
+      if (typeof listener !== 'function') return () => {};
+      publicIdListeners.add(listener);
+      return () => publicIdListeners.delete(listener);
     },
     /** Whether this tab already passed the title screen (survives reloads, not new tabs). */
     wasEntered: () => sget(session, K_ENTERED) === '1',

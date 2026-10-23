@@ -383,14 +383,19 @@ export function ProtocolSelect({ card, roomMode, difficulty, onDifficulty, capac
 /** Lobby screen component. */
 export function LobbyScreen() {
   const me = useStore((s) => s.me, shallowEqual);
-  const [publicId, setPublicId] = useState(() => getCachedPublicId(identity.getAuthType()));
+  const authType = identity.getAuthType();
+  const authToken = identity.getToken();
+  const [publicId, setPublicId] = useState(() => getCachedPublicId(authType, authToken));
+  useEffect(() => identity.subscribePublicId(() => setPublicId(getCachedPublicId(identity.getAuthType(), identity.getToken()))), []);
   useEffect(() => {
-    if (identity.getAuthType() !== 'account') { setPublicId(null); return undefined; }
+    if (authType !== 'account') { setPublicId(null); return undefined; }
+    setPublicId(getCachedPublicId(authType, authToken));
     let current = true;
-    syncCloudStats({ authType: identity.getAuthType(), token: identity.getToken(), stats: loadStats() })
-      .then((result) => { if (current) setPublicId(result.publicId); });
+    syncCloudStats({ authType, token: authToken, stats: loadStats() }).then((result) => {
+      if (current && identity.getAuthType() === authType && identity.getToken() === authToken) setPublicId(result.publicId);
+    });
     return () => { current = false; };
-  }, []);
+  }, [authType, authToken]);
   const myCard = useMyCard();
   useData(...(myCard.avatar ? ['assets'] : []));
   const conn = useStore((s) => s.connection, shallowEqual);
