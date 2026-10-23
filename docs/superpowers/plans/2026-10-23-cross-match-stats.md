@@ -185,5 +185,3 @@ git commit -m "feat: add lobby leaderboards and room browser"
 - [x] 运行全分支 focused tests；96 项中 93 项通过，3 个无认证票据 `hello` 测试在未修改基线亦失败。
 - [x] Vite runner 构建成功；记录完整 `npm run build` 的 vendor 写入权限限制，未声称该步骤通过。
 - [ ] 最终 Git 状态、提交与原始 `master` 工作区核对由主代理完成。
-
-
